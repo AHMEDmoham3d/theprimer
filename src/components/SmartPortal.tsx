@@ -14,7 +14,7 @@ interface SmartPortalProps {
   onBack: () => void;
 }
 
-type Step = 'welcome' | 'student-onboard' | 'parent-onboard' | 'admin-login';
+type Step = 'welcome' | 'student-onboard' | 'parent-onboard';
 
 export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   const { t, lang, setLang } = useLang();
@@ -165,20 +165,6 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                 </div>
                 {lang === 'ar' ? <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" /> : <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />}
               </button>
-
-              <button
-                onClick={() => setStep('admin-login')}
-                className="group flex w-full items-center gap-4 rounded-2xl border border-[#2a2a2a] bg-gradient-to-l from-[#141414] to-[#0f0f0f] p-5 text-right transition hover:border-white hover:from-[#1a1a1a]"
-              >
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-white transition group-hover:bg-white group-hover:text-black">
-                  <Shield size={26} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-base font-bold text-white">{t.admin}</h3>
-                  <p className="text-xs text-neutral-400 mt-1">{t.adminDesc}</p>
-                </div>
-                {lang === 'ar' ? <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" /> : <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />}
-              </button>
             </div>
 
             <button onClick={onBack} className="mx-auto flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition pt-2">
@@ -303,22 +289,6 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
               <button onClick={() => onChoose('parent')} className="btn-primary w-full text-xs">
                 {t.enterDirectly}
                 {lang === 'ar' ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
-              </button>
-            </div>
-            <BackButton onClick={() => setStep('welcome')} label={t.back} />
-          </div>
-        )}
-
-        {/* Step: Admin Login */}
-        {step === 'admin-login' && (
-          <div className="animate-fade-in space-y-4">
-            <div className="rounded-2xl border border-[#2a2a2a] bg-[#141414] p-6">
-              <div className="mb-4 flex items-center gap-2">
-                <Shield size={20} className="text-white" />
-                <h2 className="text-lg font-bold text-white">{t.adminLogin}</h2>
-              </div>
-              <button onClick={() => onChoose('admin')} className="btn-primary w-full">
-                <Shield size={16} /> {t.enterDashboard}
               </button>
             </div>
             <BackButton onClick={() => setStep('welcome')} label={t.back} />
