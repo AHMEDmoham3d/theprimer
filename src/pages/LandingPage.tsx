@@ -152,9 +152,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                 <button onClick={() => onEnter('student')} className="btn-primary">
                   <PlayCircle size={18} /> {t.tryTwoWeeks}
                 </button>
-                <button onClick={() => onEnter('admin')} className={cn('font-medium rounded-xl px-5 py-3 text-sm border transition-all active:scale-95 inline-flex items-center justify-center gap-2', isDark ? 'bg-[#1c1c1c] text-white border-[#2a2a2a] hover:bg-[#222] hover:border-[#3a3a3a]' : 'bg-white text-neutral-900 border-neutral-200 hover:bg-neutral-50 hover:border-neutral-300')}>
-                  {t.adminPanel} <ChevronLeft size={16} />
-                </button>
               </div>
               {/* Trust badges */}
               <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
@@ -247,7 +244,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             <h2 className="text-3xl font-bold md:text-4xl">{t.whyNotChatGPT}</h2>
             <p className={cn('mt-4 max-w-2xl mx-auto leading-relaxed', subtleText)}>{t.whyNotChatGPTDesc}</p>
           </div>
-          <div className="grid gap-6 md:grid-cols-2 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-3">
             {features.map((f) => (
               <div key={f.title} className={cn('rounded-2xl border p-6 group transition-all duration-300 hover:border-current/20', cardBg, borderCard)}>
                 <div className={cn('mb-4 flex h-12 w-12 items-center justify-center rounded-xl transition', isDark ? 'bg-neutral-800 text-white group-hover:bg-white group-hover:text-black' : 'bg-neutral-100 text-neutral-700 group-hover:bg-neutral-900 group-hover:text-white')}>
@@ -261,7 +258,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
         </div>
       </section>
 
-      {/* How it works — with visible step numbers */}
+      {/* How it works */}
       <section id="how" className={cn('border-y py-24 px-4 md:px-8 transition-colors', border, sectionAlt)}>
         <div className="mx-auto max-w-7xl">
           <div className="mb-14 text-center">
@@ -271,7 +268,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           <div className="grid gap-6 md:grid-cols-3">
             {steps.map((s) => (
               <div key={s.step} className={cn('relative rounded-2xl border p-7 group overflow-hidden', cardBg, borderCard)}>
-                {/* Large step number — visible */}
                 <div className={cn('absolute top-4 right-4 text-6xl font-bold transition', bigNumColor, 'group-hover:opacity-100')}>
                   {s.step}
                 </div>
@@ -300,11 +296,10 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             <p className={cn('mt-4 max-w-2xl mx-auto leading-relaxed', subtleText)}>
               {isAr
                 ? 'مش بس بنشرح — بنضمن إنك تفهم وتجيب درجات أعلى. النظام بيتابعك خطوة بخطوة وبيبني مسارك التعليمي بالكامل.'
-                : 'We don\'t just explain — we guarantee you understand and achieve higher grades. The system follows you step by step and builds your entire learning path.'}
+                : 'We don\'t just explain — we guarantee you understand and achieve higher grades.'}
             </p>
           </div>
 
-          {/* Guarantee cards */}
           <div className="grid gap-6 md:grid-cols-3 mb-12">
             <div className={cn('rounded-2xl border p-7', cardBg, isDark ? 'border-emerald-500/20' : 'border-emerald-600/20')}>
               <div className={cn('mb-4 flex h-12 w-12 items-center justify-center rounded-xl', isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600')}>
@@ -312,9 +307,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               </div>
               <h3 className="text-lg font-bold mb-2">{isAr ? 'ضمان الدرجات الأعلى' : 'Higher Grades Guarantee'}</h3>
               <p className={cn('text-sm leading-relaxed', subtleText)}>
-                {isAr
-                  ? 'النظام بيرصد كل سؤال وكل غلطة. لما يحس إنك مثلاً ضعيف في موضوع معين، بيركز عليه أكتر حتى تتقنه تماماً. النتيجة: فهم أعمق ودرجات أعلى.'
-                  : 'The system tracks every question and every mistake. When it detects you\'re weak in a topic, it focuses on it more until you master it completely. The result: deeper understanding and higher grades.'}
+                {isAr ? 'النظام بيرصد كل سؤال وكل غلطة. لما يحس إنك ضعيف في موضوع، بيركز عليه أكتر.' : 'The system tracks every question and mistake.'}
               </p>
             </div>
 
@@ -322,11 +315,9 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               <div className={cn('mb-4 flex h-12 w-12 items-center justify-center rounded-xl', isDark ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600')}>
                 <Eye size={24} />
               </div>
-              <h3 className="text-lg font-bold mb-2">{isAr ? 'فهم حقيقي مش حفظ' : 'Real Understanding, Not Memorization'}</h3>
+              <h3 className="text-lg font-bold mb-2">{isAr ? 'فهم حقيقي مش حفظ' : 'Real Understanding'}</h3>
               <p className={cn('text-sm leading-relaxed', subtleText)}>
-                {isAr
-                  ? 'كل شرح بيترسم على السبورة خطوة بخطوة. مش بتاخد إجابة جاهزة — بتفهم من فين جت وليه. النظام بيسألك أسئلة تقيّم فهمك الحقيقي.'
-                  : 'Every explanation is drawn on the whiteboard step by step. You don\'t get a ready-made answer — you understand where it came from and why. The system asks you questions that assess your true understanding.'}
+                {isAr ? 'كل شرح بيترسم على السبورة خطوة بخطوة بأنيميشن، مش مجرد إجابة جاهزة.' : 'Every explanation is drawn on the whiteboard step by step.'}
               </p>
             </div>
 
@@ -336,14 +327,12 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               </div>
               <h3 className="text-lg font-bold mb-2">{isAr ? 'كورس صيفي مخصص ليك' : 'Personalized Summer Course'}</h3>
               <p className={cn('text-sm leading-relaxed', subtleText)}>
-                {isAr
-                  ? 'بعد الترم، النظام بيحلل بياناتك كلها وبيبني كورس صيفي مخصوص ليك. مش كورس عام — مبني على نقاط قوتك وضعفك ومهاراتك اللي اكتشفها.'
-                  : 'After the term, the system analyzes all your data and builds a summer course just for you. Not a generic course — built on your strengths, weaknesses, and discovered skills.'}
+                {isAr ? 'بعد الترم، النظام بيبني كورس صيفي مخصوص ليك بناءً على تحليلك.' : 'After the term, a custom summer course is built.'}
               </p>
             </div>
           </div>
 
-          {/* How the summer course works — detailed */}
+          {/* How the summer course works */}
           <div className={cn('rounded-2xl border p-8 md:p-10', cardBg, borderCard, isDark ? 'bg-gradient-to-br from-[#141414] to-[#0f0f0f]' : 'bg-gradient-to-br from-neutral-50 to-white')}>
             <div className="grid gap-8 md:grid-cols-2">
               <div>
@@ -353,21 +342,14 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                 </h3>
                 <p className={cn('text-sm leading-relaxed mb-4', subtleText)}>
                   {isAr
-                    ? 'الكورس مش قالب جاهز. النظام بيعمل تحليل كامل لكل جلسة مذاكرة عملتها خلال الترم — المواد اللي تفوقت فيها، المواضيع اللي تعثرت فيها، وسرعة تعلمك في كل مجال.'
-                    : 'The course isn\'t a ready-made template. The system performs a complete analysis of every study session you did during the term — subjects you excelled in, topics you struggled with, and your learning speed in each area.'}
-                </p>
-                <p className={cn('text-sm leading-relaxed', subtleText)}>
-                  {isAr
-                    ? 'بعدها بيقترح مسار مهني محتمل ويبني 8 أسابيع من المحتوى المخصص اللي بيقوّي نقاط ضعفك ويطوّر مهاراتك الطبيعية.'
-                    : 'Then it suggests a potential career path and builds 8 weeks of customized content that strengthens your weak points and develops your natural skills.'}
+                    ? 'الكورس مش قالب جاهز. النظام بيعمل تحليل كامل لكل جلسة مذاكرة عملتها خلال الترم — المواد اللي تفوقت فيها، والمواضيع اللي تعثرت فيها.'
+                    : 'The course isn\'t a ready-made template. It analyzes every study session.'}
                 </p>
               </div>
               <div className="space-y-4">
                 {[
-                  { icon: BarChart3, title: isAr ? 'تحليل بيانات الترم' : 'Term Data Analysis', desc: isAr ? 'كل سؤال، كل جلسة، كل غلطة — كل حاجة بتتحلل' : 'Every question, every session, every mistake — all analyzed' },
-                  { icon: Telescope, title: isAr ? 'اكتشاف المهارة' : 'Skill Discovery', desc: isAr ? 'النظام بيكتشف مهاراتك الطبيعية اللي أنت نفسك مش واخد بالك منها' : 'The system discovers natural skills you didn\'t even know you had' },
-                  { icon: Layers, title: isAr ? 'بناء المسار' : 'Path Building', desc: isAr ? '8 أسابيع مخصصة بالكامل ليك — مش لكل الطلاب' : '8 weeks fully customized for you — not for every student' },
-                  { icon: Trophy, title: isAr ? 'تقرير مهني مقترح' : 'Suggested Career Report', desc: isAr ? 'تقرير نهائي بمسار مهني مقترح بناء على بياناتك الحقيقية' : 'A final report with a suggested career path based on your real data' },
+                  { icon: BarChart3, title: isAr ? 'تحليل بيانات الترم' : 'Term Data Analysis', desc: isAr ? 'كل سؤال وكل جلسة وكل غلطة تتحلل بدقة' : 'Every question and session analyzed' },
+                  { icon: Telescope, title: isAr ? 'اكتشاف المهارة' : 'Skill Discovery', desc: isAr ? 'اكتشاف مهاراتك الطبيعية ومسارك المهني' : 'Discovering your natural skills' },
                 ].map((item, i) => (
                   <div key={i} className={cn('flex items-start gap-3 rounded-xl border p-4', borderCard, cardBgAlt)}>
                     <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', isDark ? 'bg-neutral-800 text-white' : 'bg-neutral-100 text-neutral-700')}>
@@ -389,12 +371,8 @@ export function LandingPage({ onEnter }: LandingPageProps) {
       <section id="subjects" className={cn('border-y py-24 px-4 md:px-8 transition-colors', border, sectionAlt)}>
         <div className="mx-auto max-w-7xl">
           <div className="mb-14 text-center">
-            <div className={cn('mb-4 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs', borderCard, cardBgAlt, subtleText)}>
-              <Eye size={14} className="text-blue-500" />
-              {isAr ? 'شرح بصري لكل مادة' : 'Visual explanations for every subject'}
-            </div>
             <h2 className="text-3xl font-bold md:text-4xl">{isAr ? 'السبورة في كل المواد' : 'Whiteboard for Every Subject'}</h2>
-            <p className={cn('mt-4', subtleText)}>{isAr ? 'مش رياضيات بس — كل مادة برسومها الخاصة' : 'Not just math — every subject has its own diagrams'}</p>
+            <p className={cn('mt-4', subtleText)}>{isAr ? 'رياضيات، كيمياء، أحياء، وتاريخ' : 'Math, Chemistry, Biology, and History'}</p>
           </div>
           <div className="grid gap-8 md:grid-cols-2">
             {subjectShowcase.map((subject) => (
@@ -416,10 +394,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
       <section id="pricing" className="py-24 px-4 md:px-8">
         <div className="mx-auto max-w-7xl">
           <div className="mb-14 text-center">
-            <div className={cn('mb-4 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs', isDark ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300' : 'border-emerald-600/20 bg-emerald-50 text-emerald-700')}>
-              <Trophy size={14} />
-              {isAr ? 'أول أسبوعين مجانية' : 'First 2 weeks free'}
-            </div>
             <h2 className="text-3xl font-bold md:text-4xl">{t.pricing}</h2>
             <p className={cn('mt-4', subtleText)}>{t.pricingDesc}</p>
           </div>
@@ -473,10 +447,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
                   className="flex w-full items-center justify-between gap-4 p-5 text-right"
                 >
                   <span className="text-sm font-semibold">{faq.question}</span>
-                  <ChevronLeft
-                    size={18}
-                    className={cn('shrink-0 transition-transform', mutedText, openFaq === faq.id && '-rotate-90')}
-                  />
+                  <ChevronLeft size={18} className={cn('shrink-0 transition-transform', mutedText, openFaq === faq.id && '-rotate-90')} />
                 </button>
                 {openFaq === faq.id && (
                   <div className={cn('px-5 pb-5 text-sm leading-relaxed animate-fade-in', subtleText)}>
@@ -500,15 +471,10 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             <br />
             <span className={subtleText}>{t.finalCtaDesc}</span>
           </h2>
-          <p className={cn('mt-6 max-w-2xl mx-auto', subtleText)}>
-            {isAr
-              ? 'أول أسبوعين مجانية بالكامل. لو ما عجبكمش، توقفوا من غير أي التزام. مفيش بطاقة ائتمان مطلوبة.'
-              : 'First two weeks completely free. If you don\'t like it, stop with no commitment. No credit card required.'}
-          </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <button onClick={() => onEnter('student')} className="btn-primary">{t.tryFree} <ArrowLeft size={18} /></button>
             <button onClick={() => onEnter('parent')} className={isDark ? 'btn-secondary' : 'font-medium rounded-xl px-5 py-3 text-sm border border-neutral-200 bg-white text-neutral-900 transition-all hover:bg-neutral-50 hover:border-neutral-300 active:scale-95 inline-flex items-center justify-center gap-2'}>{t.imParent}</button>
-            <button onClick={() => onEnter('teacher')} className={isDark ? 'btn-secondary' : 'font-medium rounded-xl px-5 py-3 text-sm border border-neutral-200 bg-white text-neutral-900 transition-all hover:bg-neutral-50 hover:border-neutral-300 active:scale-95 inline-flex items-center justify-center gap-2'}>{t.imTeacher}</button>
+            <button onClick={() => onEnter('teacher')} className={isDark ? 'btn-secondary' : 'font-medium rounded-xl px-5 py-3 text-sm border border-neutral-200 bg-white text-neutral-900 transition-all hover:bg-neutral-50 hover:border-neutral-300 active:scale-95 inline-flex items-center justify-center gap-2'}>{isAr ? 'أنا مدرّس' : 'I am a Teacher'}</button>
           </div>
         </div>
       </section>
@@ -521,10 +487,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             <span className="font-bold">{t.appName}</span>
           </div>
           <p className={cn('text-xs', mutedText)}>© 2026 {t.appName} — {isAr ? 'جميع الحقوق محفوظة' : 'All rights reserved'}</p>
-          <div className={cn('flex items-center gap-4 text-xs', mutedText)}>
-            <span>{isAr ? 'صُنع في مصر' : 'Made in Egypt'}</span>
-            <Heart size={14} className={isDark ? 'text-neutral-600' : 'text-neutral-300'} />
-          </div>
         </div>
       </footer>
     </div>

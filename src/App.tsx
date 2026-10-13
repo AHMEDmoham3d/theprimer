@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Role } from '@/types';
 import { AppShell } from '@/components/layout/AppShell';
 import { SmartPortal } from '@/components/SmartPortal';
@@ -40,10 +40,22 @@ import { SchoolPortalActivity } from '@/pages/school/SchoolPortalActivity';
 type AppState = 'landing' | 'portal' | 'app';
 
 function App() {
-  const [appState, setAppState] = useState<AppState>('app');
+  const [appState, setAppState] = useState<AppState>('landing');
   const [role, setRole] = useState<Role>('student');
   const [activePage, setActivePage] = useState('dashboard');
   const [schoolId, setSchoolId] = useState<string | undefined>(undefined);
+
+  // فحص الرابط السري عند تحميل التطبيق للدخول المباشر للوحة الأدمن
+  useEffect(() => {
+    const currentHash = window.location.hash;
+    const currentPath = window.location.pathname;
+
+    if (currentHash === '#admin-secret' || currentPath === '/admin-secret') {
+      setRole('admin');
+      setAppState('app');
+      setActivePage('dashboard');
+    }
+  }, []);
 
   const enterApp = (selectedRole: Role, selectedSchoolId?: string) => {
     setRole(selectedRole);
