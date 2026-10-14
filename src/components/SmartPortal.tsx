@@ -48,6 +48,8 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
     }
     setSubmitting(true);
     const gradeLabel = grades[gradeKeys.indexOf(studentGrade)] ?? t.grade1;
+    
+    // 1. تسجيل الطالب في قاعدة البيانات أولاً
     const student = await createStudent({
       name: studentName,
       grade: gradeLabel,
@@ -61,44 +63,51 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       student_phone: studentPhone,
       student_email: studentEmail,
     });
+
     if (!student) {
       setSubmitting(false);
       setError(t.registrationError);
       return;
     }
 
-    const companyNumber = '+20 100 123 4567';
-    if (parentPhone) {
-      await sendWhatsAppMessagePaced({
-        student_id: student.id,
-        student_name: studentName,
-        recipient: 'parent',
-        recipient_phone: parentPhone,
-        recipient_name: parentName || t.parent,
-        recipient_email: parentEmail,
-        content: lang === 'ar'
-          ? `أهلاً بك في The Primer! ابنك ${studentName} تم تسجيله بنجاح. مدرّسه الشخصي جاهز 24/7. المنهج: ${selectedCurriculumName || 'سيتم تحديده'}.`
-          : `Welcome to The Primer! Your child ${studentName} has been registered. Their personal tutor is ready 24/7. Curriculum: ${selectedCurriculumName || 'TBD'}.`,
-        trigger_type: 'welcome',
-        company_sending_number: companyNumber,
-      });
-    }
-    if (studentPhone) {
-      await sendWhatsAppMessagePaced({
-        student_id: student.id,
-        student_name: studentName,
-        recipient: 'student',
-        recipient_phone: studentPhone,
-        recipient_name: studentName,
-        recipient_email: studentEmail,
-        content: lang === 'ar'
-          ? `أهلاً ${studentName}! مدرّسك الشخصي في The Primer جاهز. اسأل أي سؤال في أي وقت — أنا هنا 24/7.`
-          : `Hi ${studentName}! Your personal tutor at The Primer is ready. Ask any question anytime — I'm here 24/7.`,
-        trigger_type: 'welcome',
-        company_sending_number: companyNumber,
-      });
+    // 2. إرسال رسائل الواتساب بشكل آمن (Non-blocking) لكي لا تعطل فتح حساب الطالب أبداً
+    try {
+      const companyNumber = '+20 100 123 4567';
+      if (parentPhone) {
+        await sendWhatsAppMessagePaced({
+          student_id: student.id,
+          student_name: studentName,
+          recipient: 'parent',
+          recipient_phone: parentPhone,
+          recipient_name: parentName || t.parent,
+          recipient_email: parentEmail,
+          content: lang === 'ar'
+            ? `أهلاً بك في The Primer! ابنك ${studentName} تم تسجيله بنجاح. مدرّسه الشخصي جاهز 24/7. المنهج: ${selectedCurriculumName || 'سيتم تحديده'}.`
+            : `Welcome to The Primer! Your child ${studentName} has been registered. Their personal tutor is ready 24/7. Curriculum: ${selectedCurriculumName || 'TBD'}.`,
+          trigger_type: 'welcome',
+          company_sending_number: companyNumber,
+        });
+      }
+      if (studentPhone) {
+        await sendWhatsAppMessagePaced({
+          student_id: student.id,
+          student_name: studentName,
+          recipient: 'student',
+          recipient_phone: studentPhone,
+          recipient_name: studentName,
+          recipient_email: studentEmail,
+          content: lang === 'ar'
+            ? `أهلاً ${studentName}! مدرّسك الشخصي في The Primer جاهز. اسأل أي سؤال في أي وقت — أنا هنا 24/7.`
+            : `Hi ${studentName}! Your personal tutor at The Primer is ready. Ask any question anytime — I'm here 24/7.`,
+          trigger_type: 'welcome',
+          company_sending_number: companyNumber,
+        });
+      }
+    } catch (whatsappErr) {
+      console.error('WhatsApp notification skipped/failed safely:', whatsappErr);
     }
 
+    // 3. إنهاء حالة التحميل وفتح صفحة الطالب في السيستم فوراً وبكل سلاسة
     setSubmitting(false);
     onChoose('student');
   };
