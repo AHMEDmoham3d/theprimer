@@ -14,10 +14,12 @@ import {
   type SummerCourseRecommendation, type SubscriptionSettingsRow,
 } from '@/lib/db';
 
-// First real student in the DB
+// Fallback demo student ID if none provided
 const DEMO_STUDENT_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
-export function StudentDashboard({ onNavigate }: StudentPageProps) {
+export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & { studentId?: string }) {
+  const activeStudentId = studentId || DEMO_STUDENT_ID;
+
   const [student, setStudent] = useState<StudentRow | null>(null);
   const [progress, setProgress] = useState<StudentProgressRow[]>([]);
   const [schedule, setSchedule] = useState<ScheduleSlotRow[]>([]);
@@ -30,10 +32,10 @@ export function StudentDashboard({ onNavigate }: StudentPageProps) {
   useEffect(() => {
     (async () => {
       const [s, p, sch, c, ss] = await Promise.all([
-        fetchStudentById(DEMO_STUDENT_ID),
-        fetchStudentProgress(DEMO_STUDENT_ID),
-        fetchStudentSchedule(DEMO_STUDENT_ID),
-        fetchStudentRecommendations(DEMO_STUDENT_ID),
+        fetchStudentById(activeStudentId),
+        fetchStudentProgress(activeStudentId),
+        fetchStudentSchedule(activeStudentId),
+        fetchStudentRecommendations(activeStudentId),
         fetchSubscriptionSettings(),
       ]);
       setStudent(s);
@@ -43,7 +45,7 @@ export function StudentDashboard({ onNavigate }: StudentPageProps) {
       setSubSettings(ss);
       setLoading(false);
     })();
-  }, []);
+  }, [activeStudentId]);
 
   const toggleSlotStatus = async (slot: ScheduleSlotRow) => {
     setUpdatingSlotId(slot.id);
