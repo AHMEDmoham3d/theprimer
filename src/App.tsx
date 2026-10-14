@@ -44,6 +44,7 @@ function App() {
   const [role, setRole] = useState<Role>('student');
   const [activePage, setActivePage] = useState('dashboard');
   const [schoolId, setSchoolId] = useState<string | undefined>(undefined);
+  const [studentId, setStudentId] = useState<string | undefined>(undefined);
 
   // فحص الرابط السري عند تحميل التطبيق للدخول المباشر للوحة الأدمن
   useEffect(() => {
@@ -57,9 +58,18 @@ function App() {
     }
   }, []);
 
-  const enterApp = (selectedRole: Role, selectedSchoolId?: string) => {
+  const enterApp = (selectedRole: Role, selectedId?: string) => {
     setRole(selectedRole);
-    setSchoolId(selectedSchoolId);
+    if (selectedRole === 'school') {
+      setSchoolId(selectedId);
+      setStudentId(undefined);
+    } else if (selectedRole === 'student') {
+      setStudentId(selectedId);
+      setSchoolId(undefined);
+    } else {
+      setSchoolId(undefined);
+      setStudentId(undefined);
+    }
     setActivePage(selectedRole === 'school' ? 'portal-dashboard' : 'dashboard');
     setAppState('app');
   };
@@ -88,12 +98,12 @@ function App() {
       onSwitchRole={switchRole}
       notificationsCount={3}
     >
-      {renderPage(role, activePage, setActivePage, schoolId)}
+      {renderPage(role, activePage, setActivePage, schoolId, studentId)}
     </AppShell>
   );
 }
 
-function renderPage(role: Role, page: string, onNavigate: (p: string) => void, schoolId?: string) {
+function renderPage(role: Role, page: string, onNavigate: (p: string) => void, schoolId?: string, studentId?: string) {
   if (role === 'student') {
     switch (page) {
       case 'dashboard': return <StudentDashboard onNavigate={onNavigate} />;
