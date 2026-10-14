@@ -94,8 +94,8 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
   // Subscription enforcement
   const subStatus = studentData?.subscription_status ?? 'active';
   const subEndDate = studentData?.subscription_end_date;
-  const expired = isTrialExpired({ subscription_status: subStatus, subscription_end_date: subEndDate });
-  const daysLeft = getTrialDaysLeft({ subscription_end_date: subEndDate });
+  const expired = isTrialExpired({ subscription_status: subStatus, subscription_end_date: subEndDate ?? null });
+  const daysLeft = getTrialDaysLeft({ subscription_end_date: subEndDate ?? null });
   const trialSubjects = studentData?.trial_subjects ?? null;
   const isTrial = subStatus === 'trial' && !expired;
 
