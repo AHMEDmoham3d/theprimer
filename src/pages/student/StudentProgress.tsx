@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, Star, AlertCircle, Award, Lock, CheckCircle2, Play, Loader2, Brain, ChevronLeft } from 'lucide-react';
 import { Card, ProgressBar, Badge } from '@/components/ui';
-import { CURRENT_STUDENT, PROGRESS_DATA, CURRICULUM_LESSONS } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
 import type { Subject } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   fetchStudentById,
-  fetchLessonMastery, updateLessonMastery, unlockNextLesson,
-  type LessonMasteryRow, type StudentRow,
+  fetchStudentProgress,
+  fetchLessonMastery,
+  updateLessonMastery,
+  unlockNextLesson,
+  type LessonMasteryRow,
+  type StudentRow,
+  type StudentProgressRow,
 } from '@/lib/db';
 
 const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
@@ -18,6 +22,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
 
   const [student, setStudent] = useState<StudentRow | null>(null);
+  const [progressRows, setProgressRows] = useState<StudentProgressRow[]>([]);
   const [mastery, setMastery] = useState<LessonMasteryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSubject, setSelectedSubject] = useState<Subject>('math');
@@ -25,11 +30,13 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
 
   useEffect(() => {
     (async () => {
-      const [s, m] = await Promise.all([
+      const [s, p, m] = await Promise.all([
         fetchStudentById(activeStudentId),
+        fetchStudentProgress(activeStudentId),
         fetchLessonMastery(activeStudentId),
       ]);
       setStudent(s);
+      setProgressRows(p);
       setMastery(m);
       setLoading(false);
     })();
@@ -64,8 +71,15 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
     );
   }
 
-  const studentName = student?.name ?? CURRENT_STUDENT.name;
-  const studentGrade = student?.grade ?? CURRENT_STUDENT.grade;
+  const studentName = student?.name ?? 'طالب جديد';
+  const studentGrade = student?.grade ?? 'الصف الأول الثانوي';
+
+  const subjectProgressMap = new Map(progressRows.map((p) => [p.subject, p]));
+  const subjectsList: Subject[] = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];
+
+  const overallMastery = progressRows.length > 0
+    ? Math.round(progressRows.reduce((acc, p) => acc + p.mastery, 0) / progressRows.length)
+    : 0;
 
   const subjectMastery = mastery.filter((m) => m.subject === selectedSubject);
   const activeMeta = SUBJECT_META[selectedSubject] || SUBJECT_META.math;
@@ -85,47 +99,52 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
             <p className="text-sm text-neutral-400 mt-1">{studentName} — {studentGrade}</p>
           </div>
           <div className="text-left">
-            <p className="text-4xl font-bold text-white">
-              {PROGRESS_DATA.length > 0 ? Math.round(PROGRESS_DATA.reduce((a, p) => a + p.mastery, 0) / PROGRESS_DATA.length) : 0}%
-            </p>
+            <p className="text-4xl font-bold text-white">{overallMastery}%</p>
             <p className="text-xs text-green-400 mt-1">بداية موفقة هذا الشهر</p>
           </div>
         </div>
         <div className="mt-6">
-          <ProgressBar value={72} showLabel />
+          <ProgressBar value={overallMastery} showLabel />
         </div>
       </Card>
 
-      {/* Subject breakdown */}
+      {/* Subject breakdown from real DB progress */}
       <div className="grid gap-4 sm:grid-cols-2">
-        {PROGRESS_DATA.map((p) => {
-          const meta = SUBJECT_META[p.subject] || SUBJECT_META.math;
+        {subjectsList.map((subjKey) => {
+          const p = subjectProgressMap.get(subjKey);
+          const meta = SUBJECT_META[subjKey] || SUBJECT_META.math;
           const Icon = meta.icon;
-          const subjLessons = mastery.filter((m) => m.subject === p.subject);
+          const subjLessons = mastery.filter((m) => m.subject === subjKey);
           const subjCompleted = subjLessons.filter((m) => m.mastery >= 100 && m.exam_passed).length;
           const subjTotal = subjLessons.length;
+          const masteryVal = p?.mastery ?? 0;
+          const questionsCount = p?.questions_answered ?? 0;
+          const sessionsCount = p?.sessions_completed ?? 0;
+          const strengths = p?.strengths ?? [];
+          const weaknesses = p?.weaknesses ?? [];
+
           return (
-            <Card key={p.subject}>
+            <Card key={subjKey}>
               <div className="mb-4 flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: meta.accentSoft, color: meta.accent }}>
                   <Icon size={20} />
                 </div>
                 <div className="flex-1">
                   <h3 className="font-bold text-white">{meta.labelAr}</h3>
-                  <p className="text-xs text-neutral-500">{p.questionsAnswered} سؤال — {p.sessionsCompleted} جلسة</p>
+                  <p className="text-xs text-neutral-500">{questionsCount} سؤال — {sessionsCount} جلسة</p>
                 </div>
-                <span className="text-2xl font-bold text-white">{p.mastery}%</span>
+                <span className="text-2xl font-bold text-white">{masteryVal}%</span>
               </div>
-              <ProgressBar value={p.mastery} color={meta.accent} className="mb-4" />
+              <ProgressBar value={masteryVal} color={meta.accent} className="mb-4" />
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="mb-2 flex items-center gap-1 text-xs font-medium text-green-400">
                     <Star size={12} /> نقاط القوة
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {p.strengths.map((s) => (
+                    {strengths.length > 0 ? strengths.map((s) => (
                       <Badge key={s} variant="success" className="text-[10px]">{s}</Badge>
-                    ))}
+                    )) : <span className="text-[10px] text-neutral-500">جاري التقييم...</span>}
                   </div>
                 </div>
                 <div>
@@ -133,9 +152,9 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
                     <AlertCircle size={12} /> يحتاج تركيز
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {p.weaknesses.map((w) => (
+                    {weaknesses.length > 0 ? weaknesses.map((w) => (
                       <Badge key={w} variant="warning" className="text-[10px]">{w}</Badge>
-                    ))}
+                    )) : <span className="text-[10px] text-neutral-500">لا توجد نقاط ضعف بعد</span>}
                   </div>
                 </div>
               </div>
@@ -162,13 +181,13 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
 
         {/* Subject tabs */}
         <div className="mb-5 flex flex-wrap gap-2">
-          {CURRICULUM_LESSONS.map((lp) => {
-            const meta = SUBJECT_META[lp.subject] || SUBJECT_META.math;
-            const isActive = selectedSubject === lp.subject;
+          {subjectsList.map((subjKey) => {
+            const meta = SUBJECT_META[subjKey] || SUBJECT_META.math;
+            const isActive = selectedSubject === subjKey;
             return (
               <button
-                key={lp.subject}
-                onClick={() => setSelectedSubject(lp.subject)}
+                key={subjKey}
+                onClick={() => setSelectedSubject(subjKey)}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition',
                   isActive ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
