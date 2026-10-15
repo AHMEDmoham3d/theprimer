@@ -1,19 +1,44 @@
-import { Video, Clock, Calendar, CheckCircle2, X, Play } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Video, Clock, Calendar, CheckCircle2, X, Play, Loader2 } from 'lucide-react';
 import { Card, Badge, EmptyState } from '@/components/ui';
-import { SESSIONS, CURRENT_STUDENT } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
+import { fetchStudentSchedule, type ScheduleSlotRow } from '@/lib/db';
 
-export function StudentSessions() {
-  const mySessions = SESSIONS.filter((s) => s.studentId === CURRENT_STUDENT.id);
-  const upcoming = mySessions.filter((s) => s.status === 'scheduled' || s.status === 'live');
-  const completed = mySessions.filter((s) => s.status === 'completed');
+const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
+
+export function StudentSessions({ studentId }: { studentId?: string }) {
+  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+  const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
+
+  const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchStudentSchedule(activeStudentId).then((slots) => {
+      setScheduleSlots(slots);
+      setLoading(false);
+    });
+  }, [activeStudentId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-neutral-500" />
+      </div>
+    );
+  }
+
+  // الجلسات القادمة والمكتملة مبنية على جدول الطالب الحقيقي في قاعدة البيانات
+  const upcoming = scheduleSlots.filter((s) => s.status !== 'done');
+  const completed = scheduleSlots.filter((s) => s.status === 'done');
+  const totalMinutes = completed.reduce((a, s) => a + (s.duration_minutes || 25), 0);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
         <Card><div className="text-center"><p className="text-3xl font-bold text-white">{upcoming.length}</p><p className="text-xs text-neutral-400 mt-1">جلسات قادمة</p></div></Card>
         <Card><div className="text-center"><p className="text-3xl font-bold text-white">{completed.length}</p><p className="text-xs text-neutral-400 mt-1">جلسات مكتملة</p></div></Card>
-        <Card><div className="text-center"><p className="text-3xl font-bold text-white">{completed.reduce((a, s) => a + s.duration, 0)}د</p><p className="text-xs text-neutral-400 mt-1">إجمالي الوقت</p></div></Card>
+        <Card><div className="text-center"><p className="text-3xl font-bold text-white">{totalMinutes}د</p><p className="text-xs text-neutral-400 mt-1">إجمالي الوقت</p></div></Card>
       </div>
 
       {/* Upcoming */}
@@ -21,7 +46,7 @@ export function StudentSessions() {
         <h3 className="mb-4 font-bold text-white">الجلسات القادمة</h3>
         <div className="space-y-3">
           {upcoming.map((s) => {
-            const meta = SUBJECT_META[s.subject];
+            const meta = SUBJECT_META[s.subject as keyof typeof SUBJECT_META] || SUBJECT_META.math;
             const Icon = meta.icon;
             return (
               <div key={s.id} className="flex flex-col gap-3 rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 sm:flex-row sm:items-center">
@@ -37,18 +62,12 @@ export function StudentSessions() {
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2 text-xs text-neutral-400">
                     <Calendar size={14} />
-                    {new Date(s.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}
+                    {s.day_name}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-neutral-400">
-                    <Clock size={14} /> {s.duration}د
+                    <Clock size={14} /> {s.scheduled_time} ({s.duration_minutes}د)
                   </div>
-                  {s.status === 'live' ? (
-                    <button className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-bold text-white animate-pulse-glow">
-                      <Video size={14} /> انضم الآن
-                    </button>
-                  ) : (
-                    <Badge variant="info">مجدولة</Badge>
-                  )}
+                  <Badge variant="info">مجدولة</Badge>
                 </div>
               </div>
             );
@@ -64,7 +83,7 @@ export function StudentSessions() {
         <h3 className="mb-4 font-bold text-white">الجلسات المكتملة</h3>
         <div className="space-y-2">
           {completed.map((s) => {
-            const meta = SUBJECT_META[s.subject];
+            const meta = SUBJECT_META[s.subject as keyof typeof SUBJECT_META] || SUBJECT_META.math;
             const Icon = meta.icon;
             return (
               <div key={s.id} className="flex items-center gap-4 rounded-xl bg-[#141414] p-3 hover:border-[#333] border border-[#2a2a2a] transition">
@@ -73,10 +92,10 @@ export function StudentSessions() {
                 </div>
                 <div className="flex-1">
                   <h4 className="text-sm font-medium text-white">{s.topic}</h4>
-                  <p className="text-xs text-neutral-500">{meta.labelAr} — {new Date(s.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}</p>
+                  <p className="text-xs text-neutral-500">{meta.labelAr} — {s.day_name}</p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-neutral-400">
-                  <CheckCircle2 size={14} className="text-green-400" /> {s.duration}د
+                  <CheckCircle2 size={14} className="text-green-400" /> {s.duration_minutes}د
                 </div>
                 <button className="flex items-center gap-1 rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs text-neutral-300 hover:text-white transition">
                   <Play size={12} /> مراجعة

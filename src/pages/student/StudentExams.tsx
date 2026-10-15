@@ -7,17 +7,21 @@ import type { Exam, ExamQuestion } from '@/types';
 import { fetchLessonMastery, type LessonMasteryRow } from '@/lib/db';
 import { cn } from '@/lib/utils';
 
-const DEMO_STUDENT_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
+const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 const EXAM_PASS_THRESHOLD = 70;
 
-export function StudentExams() {
-  const myExams = EXAMS.filter((e) => e.studentId === CURRENT_STUDENT.id);
+export function StudentExams({ studentId }: { studentId?: string }) {
+  // التقاط معرف الطالب النشط الحقيقي سواء من البراوبس أو من ذاكرة المتصفح
+  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+  const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
+
+  const myExams = EXAMS.filter((e) => e.studentId === activeStudentId || e.studentId === CURRENT_STUDENT.id);
   const [activeExam, setActiveExam] = useState<Exam | null>(null);
   const [lessonMastery, setLessonMastery] = useState<LessonMasteryRow[]>([]);
 
   useEffect(() => {
-    fetchLessonMastery(DEMO_STUDENT_ID).then(setLessonMastery);
-  }, []);
+    fetchLessonMastery(activeStudentId).then(setLessonMastery);
+  }, [activeStudentId]);
 
   if (activeExam) {
     return <ExamRunner exam={activeExam} onExit={() => setActiveExam(null)} />;
@@ -51,7 +55,7 @@ export function StudentExams() {
         <h3 className="mb-4 font-bold text-white">امتحانات تنتظرك</h3>
         <div className="space-y-3">
           {pending.map((exam) => {
-            const meta = SUBJECT_META[exam.subject];
+            const meta = SUBJECT_META[exam.subject] || SUBJECT_META.math;
             const lessonMatch = lessonMastery.find((m) => m.subject === exam.subject && m.lesson_title === exam.topic);
             const isLocked = lessonMatch && !lessonMatch.unlocked;
             return (
@@ -94,7 +98,7 @@ export function StudentExams() {
         <h3 className="mb-4 font-bold text-white">امتحانات مكتملة</h3>
         <div className="space-y-3">
           {completed.map((exam) => {
-            const meta = SUBJECT_META[exam.subject];
+            const meta = SUBJECT_META[exam.subject] || SUBJECT_META.math;
             const score = exam.score ?? 0;
             const passed = score >= EXAM_PASS_THRESHOLD;
             return (
@@ -137,7 +141,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
   const [submitted, setSubmitted] = useState(false);
 
   const question = exam.questions[currentQ];
-  const meta = SUBJECT_META[exam.subject];
+  const meta = SUBJECT_META[exam.subject] || SUBJECT_META.math;
   const isLast = currentQ === exam.questions.length - 1;
 
   const selectAnswer = (qid: string, answer: string) => {
