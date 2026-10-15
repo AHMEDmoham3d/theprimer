@@ -14,11 +14,13 @@ import {
   type SummerCourseRecommendation, type SubscriptionSettingsRow,
 } from '@/lib/db';
 
-// Fallback demo student ID if none provided
+// Fallback demo student ID only if no student has registered or logged in
 const DEMO_STUDENT_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
 export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & { studentId?: string }) {
-  const activeStudentId = studentId || DEMO_STUDENT_ID;
+  // التقاط المعرّف الحقيقي للطالب المسجل من الـ Props أو من التخزين المحلي للمتصفح حصرياً
+  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+  const activeStudentId = studentId || storedStudentId || DEMO_STUDENT_ID;
 
   const [student, setStudent] = useState<StudentRow | null>(null);
   const [progress, setProgress] = useState<StudentProgressRow[]>([]);
@@ -31,6 +33,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
 
   useEffect(() => {
     (async () => {
+      setLoading(true);
       const [s, p, sch, c, ss] = await Promise.all([
         fetchStudentById(activeStudentId),
         fetchStudentProgress(activeStudentId),
@@ -65,7 +68,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
     );
   }
 
-  // Use real student data or fall back to mock
+  // Use real student data or fall back to mock if not found
   const studentData = student ?? null;
   const studentName = studentData?.name ?? CURRENT_STUDENT.name;
   const studentGrade = studentData?.grade ?? CURRENT_STUDENT.grade;
@@ -76,7 +79,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
   const weeklyProgress = studentData?.weekly_progress ?? CURRENT_STUDENT.weeklyProgress;
   const lastActive = studentData?.last_active ?? CURRENT_STUDENT.lastActive;
 
-  const upcomingSessions = SESSIONS.filter((s) => s.studentId === CURRENT_STUDENT.id && (s.status === 'scheduled' || s.status === 'live'));
+  const upcomingSessions = SESSIONS.filter((s) => (s.status === 'scheduled' || s.status === 'live'));
 
   // Use real progress from DB if available, otherwise mock
   const progressData = progress.length > 0 ? progress : [];
@@ -221,7 +224,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
           </div>
           <div className="space-y-3">
             {upcomingSessions.map((session) => {
-              const meta = SUBJECT_META[session.subject];
+              const meta = SUBJECT_META[session.subject] || SUBJECT_META.math;
               const Icon = meta.icon;
               return (
                 <div key={session.id} className="flex items-center gap-4 rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 hover:border-[#444] transition">
@@ -292,7 +295,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
                     <span className="mr-auto text-2xl font-bold text-white">{p.mastery}%</span>
                   </div>
                   <ProgressBar value={p.mastery} color={meta.accent} />
-                  {p.weaknesses.length > 0 && (
+                  {p.weaknesses && p.weaknesses.length > 0 && (
                     <p className="text-[10px] text-neutral-500 mt-2 flex items-center gap-1">
                       <Target size={10} className="text-amber-400" />
                       محتاج شغل على: {p.weaknesses.join('، ')}
@@ -407,7 +410,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
         </Card>
       )}
 
-      {/* AI proactive message — floating fixed bar on mobile, inline card on desktop */}
+      {/* AI proactive message */}
       {showSuggestion && (
         <div className="fixed inset-x-0 bottom-0 z-50 p-3 md:static md:inset-auto md:p-0 md:z-auto">
           <Card className="border-emerald-500/40 bg-gradient-to-br from-[#0f1f1a] to-[#141414] shadow-2xl shadow-emerald-500/10 md:border-white/20 md:shadow-none md:from-[#1a1a1a]">
