@@ -7,6 +7,7 @@ import {
 import type { Role } from '@/types';
 import { useLang } from '@/lib/i18n';
 import { fetchCurricula, createStudent, sendWhatsAppMessagePaced, type CurriculumRow } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 import { Logo } from '@/components/Logo';
 
 interface SmartPortalProps {
@@ -49,8 +50,8 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
     setSubmitting(true);
     const gradeLabel = grades[gradeKeys.indexOf(studentGrade)] ?? t.grade1;
     
-    // 1. تسجيل الطالب في قاعدة البيانات أولاً
-    const student = await createStudent({
+    // 1. تسجيل الطالب في جدول سابيز
+    await createStudent({
       name: studentName,
       grade: gradeLabel,
       school_id: null,
@@ -64,21 +65,38 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       student_email: studentEmail,
     });
 
-    if (!student || !student.id) {
+    // 2. الاستعلام المباشر لجلب الـ ID الحقيقي للطالب المسجل حالا من السيرفر
+    let realStudentId = '';
+    try {
+      const { data: foundStudent, error: searchErr } = await supabase
+        .from('students')
+        .select('id')
+        .eq('parent_phone', parentPhone)
+        .eq('name', studentName)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (foundStudent && !searchErr) {
+        realStudentId = foundStudent.id;
+        localStorage.setItem('current_student_id', realStudentId);
+      }
+    } catch (err) {
+      console.error('Error fetching real student id:', err);
+    }
+
+    if (!realStudentId) {
       setSubmitting(false);
       setError(t.registrationError);
       return;
     }
 
-    // حفظ معرف الطالب في التخزين المحلي لضمان قراءته في لوحة التحكم بأمان تام
-    localStorage.setItem('current_student_id', student.id);
-
-    // 2. إرسال رسائل الواتساب بشكل آمن (Non-blocking)
+    // 3. إرسال رسائل الواتساب بشكل آمن (Non-blocking)
     try {
       const companyNumber = '+20 100 123 4567';
       if (parentPhone) {
         await sendWhatsAppMessagePaced({
-          student_id: student.id,
+          student_id: realStudentId,
           student_name: studentName,
           recipient: 'parent',
           recipient_phone: parentPhone,
@@ -93,7 +111,7 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       }
       if (studentPhone) {
         await sendWhatsAppMessagePaced({
-          student_id: student.id,
+          student_id: realStudentId,
           student_name: studentName,
           recipient: 'student',
           recipient_phone: studentPhone,
@@ -110,9 +128,9 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       console.error('WhatsApp notification skipped/failed safely:', whatsappErr);
     }
 
-    // 3. إنهاء حالة التحميل وفتح حساب الطالب الفعلي في السيستم مع تمرير الـ ID بدقة
+    // 4. فتح حساب الطالب الفعلي في السيستم بالمعرّف الحقيقي حصرياً
     setSubmitting(false);
-    onChoose('student', student.id);
+    onChoose('student', realStudentId);
   };
 
   return (
