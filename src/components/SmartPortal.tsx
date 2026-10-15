@@ -10,7 +10,7 @@ import { fetchCurricula, createStudent, sendWhatsAppMessagePaced, type Curriculu
 import { Logo } from '@/components/Logo';
 
 interface SmartPortalProps {
-  onChoose: (role: Role, schoolId?: string) => void;
+  onChoose: (role: Role, entityId?: string) => void;
   onBack: () => void;
 }
 
@@ -64,13 +64,16 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       student_email: studentEmail,
     });
 
-    if (!student) {
+    if (!student || !student.id) {
       setSubmitting(false);
       setError(t.registrationError);
       return;
     }
 
-    // 2. إرسال رسائل الواتساب بشكل آمن (Non-blocking) لكي لا تعطل فتح حساب الطالب أبداً
+    // حفظ معرف الطالب في التخزين المحلي لضمان قراءته في لوحة التحكم بأمان تام
+    localStorage.setItem('current_student_id', student.id);
+
+    // 2. إرسال رسائل الواتساب بشكل آمن (Non-blocking)
     try {
       const companyNumber = '+20 100 123 4567';
       if (parentPhone) {
@@ -107,9 +110,9 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       console.error('WhatsApp notification skipped/failed safely:', whatsappErr);
     }
 
-    // 3. إنهاء حالة التحميل وفتح صفحة الطالب في السيستم فوراً وبكل سلاسة
+    // 3. إنهاء حالة التحميل وفتح حساب الطالب الفعلي في السيستم مع تمرير الـ ID بدقة
     setSubmitting(false);
-    onChoose('student');
+    onChoose('student', student.id);
   };
 
   return (
