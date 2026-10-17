@@ -5,21 +5,13 @@ import { SUBJECT_META } from '@/data/subjects';
 import { fetchStudentSchedule, type ScheduleSlotRow } from '@/lib/db';
 
 export function StudentSessions({ studentId }: { studentId?: string }) {
-  const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
-    const resolvedId = studentId || storedId;
-    if (resolvedId) {
-      setActiveStudentId(resolvedId);
-    }
-  }, [studentId]);
+  const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+  const activeStudentId = studentId || storedId || 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!activeStudentId) return;
     (async () => {
       setLoading(true);
       const slots = await fetchStudentSchedule(activeStudentId);
@@ -28,7 +20,7 @@ export function StudentSessions({ studentId }: { studentId?: string }) {
     })();
   }, [activeStudentId]);
 
-  if (loading || !activeStudentId) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={24} className="animate-spin text-neutral-500" />

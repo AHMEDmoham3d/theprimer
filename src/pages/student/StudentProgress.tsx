@@ -16,16 +16,8 @@ import {
 } from '@/lib/db';
 
 export function StudentProgress({ studentId }: { studentId?: string }) {
-  const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
-
-  useEffect(() => {
-    // التقاط معرّف الطالب الحقيقي حصرياً من الـ props أو من التخزين المحلي للمتصفح
-    const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
-    const resolvedId = studentId || storedId;
-    if (resolvedId) {
-      setActiveStudentId(resolvedId);
-    }
-  }, [studentId]);
+  const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+  const activeStudentId = studentId || storedId || 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
   const [student, setStudent] = useState<StudentRow | null>(null);
   const [progressRows, setProgressRows] = useState<StudentProgressRow[]>([]);
@@ -35,7 +27,6 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeStudentId) return;
     (async () => {
       setLoading(true);
       const [s, p, m] = await Promise.all([
@@ -72,7 +63,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
     setUpdatingId(null);
   };
 
-  if (loading || !activeStudentId) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={24} className="animate-spin text-neutral-500" />

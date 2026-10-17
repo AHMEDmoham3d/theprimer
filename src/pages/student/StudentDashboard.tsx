@@ -18,7 +18,7 @@ import {
 const DEMO_STUDENT_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
 export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & { studentId?: string }) {
-  // التقاط المعرّف الحقيقي للطالب المسجل من الـ Props أو من التخزين المحلي للمتصفح حصرياً
+  // التقاط المعرّف الحقيقي للطالب المسجل بشكل مباشر وسريع لمنع أي تعليق في الـ Loading
   const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
   const activeStudentId = studentId || storedStudentId || DEMO_STUDENT_ID;
 
