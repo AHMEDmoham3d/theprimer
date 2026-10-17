@@ -4,23 +4,31 @@ import { Card, Badge, EmptyState } from '@/components/ui';
 import { SUBJECT_META } from '@/data/subjects';
 import { fetchStudentSchedule, type ScheduleSlotRow } from '@/lib/db';
 
-const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
-
 export function StudentSessions({ studentId }: { studentId?: string }) {
-  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
-  const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
+  const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+    const resolvedId = studentId || storedId;
+    if (resolvedId) {
+      setActiveStudentId(resolvedId);
+    }
+  }, [studentId]);
 
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlotRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchStudentSchedule(activeStudentId).then((slots) => {
+    if (!activeStudentId) return;
+    (async () => {
+      setLoading(true);
+      const slots = await fetchStudentSchedule(activeStudentId);
       setScheduleSlots(slots);
       setLoading(false);
-    });
+    })();
   }, [activeStudentId]);
 
-  if (loading) {
+  if (loading || !activeStudentId) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={24} className="animate-spin text-neutral-500" />

@@ -15,11 +15,17 @@ import {
   type StudentProgressRow,
 } from '@/lib/db';
 
-const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
-
 export function StudentProgress({ studentId }: { studentId?: string }) {
-  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
-  const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
+  const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // التقاط معرّف الطالب الحقيقي حصرياً من الـ props أو من التخزين المحلي للمتصفح
+    const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+    const resolvedId = studentId || storedId;
+    if (resolvedId) {
+      setActiveStudentId(resolvedId);
+    }
+  }, [studentId]);
 
   const [student, setStudent] = useState<StudentRow | null>(null);
   const [progressRows, setProgressRows] = useState<StudentProgressRow[]>([]);
@@ -29,7 +35,9 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!activeStudentId) return;
     (async () => {
+      setLoading(true);
       const [s, p, m] = await Promise.all([
         fetchStudentById(activeStudentId),
         fetchStudentProgress(activeStudentId),
@@ -43,6 +51,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   }, [activeStudentId]);
 
   const completeLesson = async (lesson: LessonMasteryRow) => {
+    if (!activeStudentId) return;
     if (lesson.mastery >= 100 && lesson.exam_passed) return;
     setUpdatingId(lesson.id);
     const newMastery = 100;
@@ -63,7 +72,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
     setUpdatingId(null);
   };
 
-  if (loading) {
+  if (loading || !activeStudentId) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 size={24} className="animate-spin text-neutral-500" />
@@ -72,7 +81,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   }
 
   const studentName = student?.name ?? 'طالب جديد';
-  const studentGrade = student?.grade ?? 'الصف الأول الثانوي';
+  const studentGrade = student?.grade ?? 'الصف الثانوي';
 
   const subjectProgressMap = new Map(progressRows.map((p) => [p.subject, p]));
   const subjectsList: Subject[] = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];

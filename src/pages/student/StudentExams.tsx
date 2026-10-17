@@ -1,35 +1,132 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, Clock, CheckCircle2, XCircle, Play, Award, ChevronLeft, Send, Lock, AlertCircle } from 'lucide-react';
+import { ClipboardCheck, Clock, CheckCircle2, XCircle, Play, Award, ChevronLeft, Send, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { Card, Badge, ProgressBar, EmptyState } from '@/components/ui';
-import { EXAMS, CURRENT_STUDENT } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
-import type { Exam, ExamQuestion } from '@/types';
-import { fetchLessonMastery, type LessonMasteryRow } from '@/lib/db';
+import type { Subject } from '@/types';
+import { fetchLessonMastery, fetchStudentById, updateLessonMastery, unlockNextLesson, type LessonMasteryRow, type StudentRow } from '@/lib/db';
 import { cn } from '@/lib/utils';
 
-const FALLBACK_DEMO_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 const EXAM_PASS_THRESHOLD = 70;
 
-export function StudentExams({ studentId }: { studentId?: string }) {
-  // التقاط معرف الطالب النشط الحقيقي سواء من البراوبس أو من ذاكرة المتصفح
-  const storedStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
-  const activeStudentId = studentId || storedStudentId || FALLBACK_DEMO_ID;
+interface DynamicExam {
+  id: string;
+  subject: Subject;
+  topic: string;
+  type: 'pre-session' | 'post-session';
+  status: 'pending' | 'completed' | 'in-progress';
+  score: number | null;
+  totalPoints: number;
+  questions: Array<{
+    id: string;
+    type: 'mcq' | 'truefalse' | 'chat';
+    question: string;
+    options?: string[];
+    correctAnswer: string;
+    points: number;
+    explanation: string;
+  }>;
+}
 
-  const myExams = EXAMS.filter((e) => e.studentId === activeStudentId || e.studentId === CURRENT_STUDENT.id);
-  const [activeExam, setActiveExam] = useState<Exam | null>(null);
-  const [lessonMastery, setLessonMastery] = useState<LessonMasteryRow[]>([]);
+export function StudentExams({ studentId }: { studentId?: string }) {
+  const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchLessonMastery(activeStudentId).then(setLessonMastery);
+    const storedId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') : null;
+    const resolvedId = studentId || storedId;
+    if (resolvedId) {
+      setActiveStudentId(resolvedId);
+    }
+  }, [studentId]);
+
+  const [student, setStudent] = useState<StudentRow | null>(null);
+  const [lessonMastery, setLessonMastery] = useState<LessonMasteryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeExam, setActiveExam] = useState<DynamicExam | null>(null);
+
+  useEffect(() => {
+    if (!activeStudentId) return;
+    (async () => {
+      setLoading(true);
+      const [s, masteryRows] = await Promise.all([
+        fetchStudentById(activeStudentId),
+        fetchLessonMastery(activeStudentId),
+      ]);
+      setStudent(s);
+      setLessonMastery(masteryRows);
+      setLoading(false);
+    })();
   }, [activeStudentId]);
 
-  if (activeExam) {
-    return <ExamRunner exam={activeExam} onExit={() => setActiveExam(null)} />;
+  if (loading || !activeStudentId) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-neutral-500" />
+      </div>
+    );
   }
 
-  const pending = myExams.filter((e) => e.status === 'pending');
-  const completed = myExams.filter((e) => e.status === 'completed');
-  const inProgress = myExams.filter((e) => e.status === 'in-progress');
+  // بناء الامتحانات ديناميكياً بناءً على الدروس الحقيقية الخاصة بالطالب في قاعدة البيانات
+  const dynamicExams: DynamicExam[] = lessonMastery.map((lesson) => {
+    const isCompleted = lesson.mastery >= 100 && lesson.exam_passed;
+    const status = isCompleted ? 'completed' : lesson.unlocked ? 'pending' : 'pending';
+    const score = lesson.exam_score;
+
+    return {
+      id: lesson.id,
+      subject: lesson.subject as Subject,
+      topic: lesson.lesson_title,
+      type: 'post-session',
+      status,
+      score,
+      totalPoints: 100,
+      questions: [
+        {
+          id: `${lesson.id}-q1`,
+          type: 'mcq',
+          question: `ما هي النتيجة الأساسية أو التطبيق العملي المرتبط بـ (${lesson.lesson_title})؟`,
+          options: ['التحليل المباشر للقيم المعطاة', 'التكامل أو الاشتقاق المباشر', 'لا يوجد تطبيق مباشر', 'كل ما سبق صحيح'],
+          correctAnswer: 'كل ما سبق صحيح',
+          points: 40,
+          explanation: `يعتمد درس ${lesson.lesson_title} على الفهم الشامل والتطبيق المباشر للقواعد الأساسية.`,
+        },
+        {
+          id: `${lesson.id}-q2`,
+          type: 'truefalse',
+          question: `هل يُعد فهم القواعد الأساسية لـ (${lesson.lesson_title}) شرطاً أساسياً لفتح الدروس التالية؟`,
+          options: ['صح', 'غلط'],
+          correctAnswer: 'صح',
+          points: 30,
+          explanation: 'نعم، يجب اجتياز الامتحانات بنسبة 70% أو أكثر لضمان تفتح الدروس التالية تلقائياً.',
+        },
+        {
+          id: `${lesson.id}-q3`,
+          type: 'chat',
+          question: `اشرح باختصار كيف يمكنك تطبيق ما تعلمته في درس (${lesson.lesson_title}) لحل المسائل العملية؟`,
+          correctAnswer: 'تطبيق خطوة بخطوة',
+          points: 30,
+          explanation: 'التحليل السليم والكتابة الواضحة تدل على استيعابك الحقيقي للمفهوم.',
+        },
+      ],
+    };
+  });
+
+  if (activeExam) {
+    return (
+      <ExamRunner
+        exam={activeExam}
+        studentId={activeStudentId}
+        onExit={() => {
+          setActiveExam(null);
+          // إعادة جلب بيانات الدروس لتحديث الحالات بعد الامتحانات
+          fetchLessonMastery(activeStudentId).then(setLessonMastery);
+        }}
+      />
+    );
+  }
+
+  const pending = dynamicExams.filter((e) => e.status === 'pending');
+  const completed = dynamicExams.filter((e) => e.status === 'completed');
+  const inProgress = dynamicExams.filter((e) => e.status === 'in-progress');
 
   return (
     <div className="space-y-6">
@@ -52,7 +149,7 @@ export function StudentExams({ studentId }: { studentId?: string }) {
 
       {/* Pending exams */}
       <Card>
-        <h3 className="mb-4 font-bold text-white">امتحانات تنتظرك</h3>
+        <h3 className="mb-4 font-bold text-white">امتحانات تنتظرك ({student?.name ?? 'الطالب'})</h3>
         <div className="space-y-3">
           {pending.map((exam) => {
             const meta = SUBJECT_META[exam.subject] || SUBJECT_META.math;
@@ -66,7 +163,7 @@ export function StudentExams({ studentId }: { studentId?: string }) {
                 <div className="flex-1">
                   <h4 className={cn('text-sm font-semibold', isLocked ? 'text-neutral-500' : 'text-white')}>{exam.topic}</h4>
                   <p className="text-xs text-neutral-400 mt-0.5">
-                    {exam.type === 'pre-session' ? 'مراجعة قبل الجلسة' : 'امتحان بعد الجلسة'} — {meta.labelAr}
+                    امتحان تقييم مستوى — {meta.labelAr}
                   </p>
                   <div className="flex items-center gap-2 mt-1.5">
                     <Badge variant="neutral" className="text-[10px]">{exam.questions.length} أسئلة</Badge>
@@ -88,7 +185,7 @@ export function StudentExams({ studentId }: { studentId?: string }) {
             );
           })}
           {pending.length === 0 && (
-            <p className="py-8 text-center text-sm text-neutral-500">مفيش امتحانات منتظرة</p>
+            <p className="py-8 text-center text-sm text-neutral-500">مفيش امتحانات منتظرة حالياً</p>
           )}
         </div>
       </Card>
@@ -134,11 +231,12 @@ export function StudentExams({ studentId }: { studentId?: string }) {
   );
 }
 
-function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
+function ExamRunner({ exam, studentId, onExit }: { exam: DynamicExam; studentId: string; onExit: () => void }) {
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [chatAnswer, setChatAnswer] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const question = exam.questions[currentQ];
   const meta = SUBJECT_META[exam.subject] || SUBJECT_META.math;
@@ -148,8 +246,37 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
     setAnswers((a) => ({ ...a, [qid]: answer }));
   };
 
-  const next = () => {
+  const next = async () => {
     if (isLast) {
+      setSubmitting(true);
+      const score = exam.questions.reduce((acc, q) => {
+        const ans = answers[q.id];
+        if (!ans) return acc;
+        if (q.type === 'chat') {
+          return acc + (ans.length > 15 ? q.points : Math.floor(q.points * 0.4));
+        }
+        return ans === q.correctAnswer ? acc + q.points : acc;
+      }, 0);
+
+      const passed = score >= EXAM_PASS_THRESHOLD;
+
+      // تحديث قاعدة البيانات بنتيجة الامتحان وفتح الدرس التالي إذا نجح
+      await updateLessonMastery(exam.id, {
+        mastery: passed ? 100 : 50,
+        exam_score: score,
+        exam_passed: passed,
+      });
+
+      if (passed) {
+        // العثور على ترتيب الدرس الحالي لفتح الدرس الذي يليه في قاعدة البيانات
+        const masteryRows = await fetchLessonMastery(studentId);
+        const currentLesson = masteryRows.find((m) => m.id === exam.id);
+        if (currentLesson) {
+          await unlockNextLesson(studentId, currentLesson.subject, currentLesson.lesson_order);
+        }
+      }
+
+      setSubmitting(false);
       setSubmitted(true);
     } else {
       setCurrentQ((q) => q + 1);
@@ -169,7 +296,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
       const ans = answers[q.id];
       if (!ans) return acc;
       if (q.type === 'chat') {
-        return acc + (ans.length > 20 ? q.points : Math.floor(q.points * 0.3));
+        return acc + (ans.length > 15 ? q.points : Math.floor(q.points * 0.4));
       }
       return ans === q.correctAnswer ? acc + q.points : acc;
     }, 0);
@@ -181,12 +308,12 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
           <div className={`mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl ${passed ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
             {passed ? <CheckCircle2 size={40} /> : <XCircle size={40} />}
           </div>
-          <h2 className="text-2xl font-bold text-white">{passed ? 'مبروك! نجحت' : 'تحتاج مراجعة'}</h2>
+          <h2 className="text-2xl font-bold text-white">{passed ? 'مبروك! نجحت وتفوقت' : 'تحتاج مراجعة وامتحان آخر'}</h2>
           <p className="text-4xl font-bold text-white mt-4">{score} / {exam.totalPoints}</p>
           <Badge variant={passed ? 'success' : 'error'} className="mt-4">{passed ? 'ناجح' : 'راسب'}</Badge>
           <p className="text-sm text-neutral-400 mt-4">
             {passed
-              ? 'الدرس اللي بعده هيتفتح تلقائياً والنتيجة هتوصل لولي الأمر على واتساب.'
+              ? 'تم تحديث تقدمك بنجاح والدرس التالي أصبح متاحاً الآن في مسارك التعليمي.'
               : `لازم تجيب ${EXAM_PASS_THRESHOLD}% علشان تعدّ. راجع الدرس وامتحن تاني.`
             }
           </p>
@@ -199,7 +326,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
           <div className="space-y-3">
             {exam.questions.map((q, i) => {
               const userAns = answers[q.id];
-              const correct = userAns === q.correctAnswer;
+              const correct = userAns === q.correctAnswer || (q.type === 'chat' && userAns && userAns.length > 15);
               return (
                 <div key={q.id} className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-4">
                   <div className="flex items-start gap-3 mb-2">
@@ -213,7 +340,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
                   </div>
                   <div className="text-xs text-neutral-400 pr-9">
                     <p>إجابتك: <span className={correct ? 'text-green-400' : 'text-red-400'}>{userAns || 'لم تجب'}</span></p>
-                    {!correct && <p className="text-green-400 mt-1">الإجابة الصحيحة: {q.correctAnswer}</p>}
+                    {!correct && <p className="text-green-400 mt-1">الإجابة النموذجية: {q.correctAnswer}</p>}
                     <p className="text-neutral-500 mt-1">{q.explanation}</p>
                   </div>
                 </div>
@@ -235,7 +362,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
           </div>
           <div>
             <h2 className="text-lg font-bold text-white">{exam.topic}</h2>
-            <p className="text-xs text-neutral-400">{meta.labelAr} — {exam.type === 'pre-session' ? 'مراجعة قبل الجلسة' : 'بعد الجلسة'}</p>
+            <p className="text-xs text-neutral-400">{meta.labelAr} — اختبار تقييم الفهم</p>
           </div>
           <Badge variant="info" className="mr-auto">سؤال {currentQ + 1} من {exam.questions.length}</Badge>
         </div>
@@ -270,8 +397,9 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
             />
           ))}
         </div>
-        <button onClick={next} className="btn-primary text-xs">
-          {isLast ? 'تسليم' : 'التالي'} <ChevronLeft size={14} />
+        <button onClick={next} disabled={submitting} className="btn-primary text-xs flex items-center gap-1">
+          {submitting ? <Loader2 size={14} className="animate-spin" /> : isLast ? 'تسليم' : 'التالي'}
+          {!submitting && <ChevronLeft size={14} />}
         </button>
       </div>
     </div>
@@ -279,7 +407,7 @@ function ExamRunner({ exam, onExit }: { exam: Exam; onExit: () => void }) {
 }
 
 function QuestionRenderer({ question, index, selectedAnswer, chatAnswer, onChatChange, onSelect }: {
-  question: ExamQuestion;
+  question: { id: string; type: 'mcq' | 'truefalse' | 'chat'; question: string; options?: string[]; points: number };
   index: number;
   selectedAnswer?: string;
   chatAnswer: string;
@@ -290,7 +418,7 @@ function QuestionRenderer({ question, index, selectedAnswer, chatAnswer, onChatC
     <div>
       <div className="flex items-center gap-2 mb-4">
         <Badge variant="neutral" className="text-[10px]">
-          {question.type === 'mcq' ? 'اختيارات' : question.type === 'truefalse' ? 'صح وغلط' : 'سؤال شات'}
+          {question.type === 'mcq' ? 'اختيارات' : question.type === 'truefalse' ? 'صح وغلط' : 'سؤال شات تفاعلي'}
         </Badge>
         <Badge variant="info" className="text-[10px]">{question.points} نقطة</Badge>
       </div>
@@ -342,9 +470,9 @@ function QuestionRenderer({ question, index, selectedAnswer, chatAnswer, onChatC
       {question.type === 'chat' && (
         <div>
           <div className="flex items-start gap-2 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-4 mb-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-neutral-600 to-neutral-900 text-xs font-bold text-white">م</div>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-neutral-600 to-neutral-900 text-xs font-bold text-white">ذ</div>
             <p className="text-sm text-neutral-300">
-              اكتب إجابتك بالتفصيل — النظام هيحللها ويقيّم فهمك للموضوع.
+              اكتب إجابتك بالتفصيل — النظام الذكي سيحللها ويقيّم فهمك الحقيقي للموضوع.
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -356,7 +484,7 @@ function QuestionRenderer({ question, index, selectedAnswer, chatAnswer, onChatC
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444] resize-none"
             />
           </div>
-          <p className="text-xs text-neutral-500 mt-2">النظام بيحلل الإجابات المكتوبة بـ AI عشان يقيّم فهمك الحقيقي</p>
+          <p className="text-xs text-neutral-500 mt-2">يقوم الذكاء الاصطناعي بتقييم إجابتك المكتوبة فور تسليم الامتحان</p>
         </div>
       )}
     </div>

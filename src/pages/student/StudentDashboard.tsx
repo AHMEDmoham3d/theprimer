@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Flame, Target, Clock, TrendingUp, MessageSquare, Calendar, Video, Sparkles, ChevronLeft, CheckCircle2, Circle, Brain, Send, Loader2, Sun, GraduationCap, Lock, CreditCard, X } from 'lucide-react';
 import { Card, StatCard, Badge, ProgressBar, Avatar } from '@/components/ui';
-import { CURRENT_STUDENT, SESSIONS, NOTIFICATIONS } from '@/data/mockData';
+import { NOTIFICATIONS } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
 import type { StudentPageProps } from './types';
 import { cn } from '@/lib/utils';
@@ -68,34 +68,35 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
     );
   }
 
-  // Use real student data or fall back to mock if not found
+  // Use real student data exclusively
   const studentData = student ?? null;
-  const studentName = studentData?.name ?? CURRENT_STUDENT.name;
-  const studentGrade = studentData?.grade ?? CURRENT_STUDENT.grade;
-  const studentSchool = studentData?.school_name ?? CURRENT_STUDENT.schoolName;
-  const studentAvatar = studentData?.avatar ?? CURRENT_STUDENT.avatar;
-  const streakDays = studentData?.streak_days ?? CURRENT_STUDENT.streakDays;
-  const weeklyGoal = studentData?.weekly_goal ?? CURRENT_STUDENT.weeklyGoal;
-  const weeklyProgress = studentData?.weekly_progress ?? CURRENT_STUDENT.weeklyProgress;
-  const lastActive = studentData?.last_active ?? CURRENT_STUDENT.lastActive;
+  const studentName = studentData?.name ?? 'طالب جديد';
+  const studentGrade = studentData?.grade ?? 'الصف الثاني الثانوي';
+  const studentSchool = studentData?.school_name ?? 'مذاكرة فردية';
+  const studentAvatar = studentData?.avatar ?? 'ط';
+  const streakDays = studentData?.streak_days ?? 1;
+  const weeklyGoal = studentData?.weekly_goal ?? 5;
+  const weeklyProgress = studentData?.weekly_progress ?? 0;
+  const lastActive = studentData?.last_active ?? 'منذ قليل';
 
-  const upcomingSessions = SESSIONS.filter((s) => (s.status === 'scheduled' || s.status === 'live'));
-
-  // Use real progress from DB if available, otherwise mock
+  // Use real progress from DB
   const progressData = progress.length > 0 ? progress : [];
   const totalQuestions = progressData.reduce((sum, p) => sum + p.questions_answered, 0);
   const totalSessions = progressData.reduce((sum, p) => sum + p.sessions_completed, 0);
   const avgMastery = progressData.length > 0
     ? Math.round(progressData.reduce((sum, p) => sum + p.mastery, 0) / progressData.length)
-    : 78;
+    : 0;
 
-  // Use real schedule from DB if available, otherwise mock
+  // Calculate learning hours dynamically based on completed sessions (each session ~ 25 mins)
+  const totalLearningHours = ((totalSessions * 25) / 60).toFixed(1);
+
+  // Use real schedule from DB
   const scheduleData = schedule.length > 0 ? schedule : [];
   const doneSlots = scheduleData.filter((s) => s.status === 'done').length;
   const totalSlots = scheduleData.length;
 
   // Subscription enforcement
-  const subStatus = studentData?.subscription_status ?? 'active';
+  const subStatus = studentData?.subscription_status ?? 'trial';
   const subEndDate = studentData?.subscription_end_date;
   const expired = isTrialExpired({ subscription_status: subStatus, subscription_end_date: subEndDate ?? null });
   const daysLeft = getTrialDaysLeft({ subscription_end_date: subEndDate ?? null });
@@ -161,8 +162,8 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
         <div className="flex items-center gap-4">
           <Avatar initials={studentAvatar} size="lg" />
           <div>
-            <h2 className="text-xl font-bold text-white">أهلاً، {studentName.split(' ')[0]}</h2>
-            <p className="text-sm text-neutral-400 mt-1">{studentGrade} — {studentSchool || 'مذاكرة فردية'}</p>
+            <h2 className="text-xl font-bold text-white">أهلاً، {studentName}</h2>
+            <p className="text-sm text-neutral-400 mt-1">{studentGrade} — {studentSchool}</p>
           </div>
           <div className="mr-auto flex flex-col items-end gap-2">
             <Badge variant="warning">
@@ -173,11 +174,11 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
         </div>
       </Card>
 
-      {/* Stats */}
+      {/* Stats - Real data */}
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <StatCard label="الهدف الأسبوعي" value={`${weeklyProgress}/${weeklyGoal}`} icon={<Target size={20} />} change={`متبقي ${weeklyGoal - weeklyProgress} جلسات`} trend="up" />
+        <StatCard label="الهدف الأسبوعي" value={`${weeklyProgress}/${weeklyGoal}`} icon={<Target size={20} />} change={`متبقي ${Math.max(0, weeklyGoal - weeklyProgress)} جلسات`} trend="up" />
         <StatCard label="أيام الموالاة" value={streakDays} icon={<Flame size={20} />} change="استمرار متواصل" trend="up" />
-        <StatCard label="جلسات مكتملة" value={totalSessions || 24} icon={<Clock size={20} />} change={`${Math.round((totalSessions || 24) * 0.8)} ساعة تعلم`} trend="up" />
+        <StatCard label="جلسات مكتملة" value={totalSessions} icon={<Clock size={20} />} change={`${totalLearningHours} ساعة تعلم`} trend="up" />
         <StatCard label="معدل التقدم" value={`${avgMastery}%`} icon={<TrendingUp size={20} />} change="تحسن مستمر" trend="up" />
       </div>
 
@@ -216,39 +217,35 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        {/* Upcoming sessions */}
+        {/* Upcoming sessions from schedule or real slots */}
         <Card className="md:col-span-2">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-bold text-white">الجلسات القادمة</h3>
+            <h3 className="font-bold text-white">الجلسات والدروس القادمة</h3>
             <button onClick={() => onNavigate('sessions')} className="text-xs text-neutral-400 hover:text-white">عرض الكل</button>
           </div>
           <div className="space-y-3">
-            {upcomingSessions.map((session) => {
-              const meta = SUBJECT_META[session.subject] || SUBJECT_META.math;
+            {scheduleData.filter((s) => s.status === 'upcoming').slice(0, 4).map((slot) => {
+              const meta = SUBJECT_META[slot.subject as keyof typeof SUBJECT_META] ?? SUBJECT_META.math;
               const Icon = meta.icon;
               return (
-                <div key={session.id} className="flex items-center gap-4 rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 hover:border-[#444] transition">
+                <div key={slot.id} className="flex items-center gap-4 rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 hover:border-[#444] transition">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: meta.accentSoft, color: meta.accent }}>
                     <Icon size={20} />
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-sm font-semibold text-white">{session.topic}</h4>
-                    <p className="text-xs text-neutral-400 mt-0.5">{meta.labelAr} — {session.duration} دقيقة</p>
+                    <h4 className="text-sm font-semibold text-white">{slot.topic}</h4>
+                    <p className="text-xs text-neutral-400 mt-0.5">{meta.labelAr} — {slot.duration_minutes} دقيقة</p>
                   </div>
                   <div className="text-left">
-                    <p className="text-xs text-neutral-300">{new Date(session.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}</p>
-                    <p className="text-xs text-neutral-500">{new Date(session.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-xs text-neutral-300">{slot.day_name}</p>
+                    <p className="text-xs text-neutral-500">{slot.scheduled_time}</p>
                   </div>
-                  {session.status === 'live' ? (
-                    <Badge variant="error">مباشر</Badge>
-                  ) : (
-                    <Badge variant="info">مجدولة</Badge>
-                  )}
+                  <Badge variant="info">مجدولة</Badge>
                 </div>
               );
             })}
-            {upcomingSessions.length === 0 && (
-              <p className="py-8 text-center text-sm text-neutral-500">مفيش جلسات مجدولة دلوقتي</p>
+            {scheduleData.filter((s) => s.status === 'upcoming').length === 0 && (
+              <p className="py-8 text-center text-sm text-neutral-500">مفيش جلسات مجدولة حالياً</p>
             )}
           </div>
         </Card>
@@ -423,7 +420,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
                   <span className="font-semibold text-white">رسالة من مدرّسك:</span> يا {studentName.split(' ')[0]}،
                   {progressData.length > 0 && progressData[0]?.weaknesses?.length > 0
                     ? ` لاحظت إنك بتتعسر في ${progressData[0].weaknesses[0]} — عايز جلسة 25 دقيقة نخلّص الموضوع ده؟`
-                    : ' لاحظت إنك بتسأل كتير في المعادلات التفاضلية الأيام دي — عايز سيشن 25 دقيقة نخلّص الموضوع ده؟'}
+                    : ' لاحظت إنك بتسأل كتير في المناهج والأيام دي — عايز سيشن 25 دقيقة نخلّص الموضوع ده؟'}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => onNavigate('chat')} className="btn-primary text-xs">أيوة، خليني أبدأ</button>
