@@ -335,7 +335,28 @@ export async function fetchStudentProgress(studentId: string): Promise<StudentPr
     .select('*')
     .eq('student_id', studentId)
     .order('subject');
-  if (error) { console.error('fetchStudentProgress:', error); return []; }
+  
+  if (error || !data || data.length === 0) {
+    // Auto-seed initial real progress rows for a newly registered student
+    const defaultSubjects = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];
+    const initialRows = defaultSubjects.map((subject) => ({
+      student_id: studentId,
+      subject,
+      mastery: 0,
+      questions_answered: 0,
+      sessions_completed: 0,
+      strengths: ['أساسيات المنهج'],
+      weaknesses: ['جاري تحديد نقاط التركيز'],
+      recent_topics: ['مقدمة المنهج'],
+    }));
+
+    const { data: inserted } = await supabase
+      .from('student_progress')
+      .insert(initialRows)
+      .select('*');
+
+    return (inserted || []) as StudentProgressRow[];
+  }
   return data as StudentProgressRow[];
 }
 
@@ -370,7 +391,23 @@ export async function fetchStudentSchedule(studentId: string): Promise<ScheduleS
     .eq('student_id', studentId)
     .order('day_of_week')
     .order('scheduled_time');
-  if (error) { console.error('fetchStudentSchedule:', error); return []; }
+
+  if (error || !data || data.length === 0) {
+    // Auto-seed initial study schedule for a newly registered student
+    const defaultSchedule = [
+      { student_id: studentId, day_of_week: 1, day_name: 'السبت', day_name_en: 'Saturday', scheduled_time: '16:00:00', subject: 'math', topic: 'مقدمة في الجبر والتحليل', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
+      { student_id: studentId, day_of_week: 2, day_name: 'الأحد', day_name_en: 'Sunday', scheduled_time: '15:00:00', subject: 'physics', topic: 'قوانين الحركة الأساسية', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
+      { student_id: studentId, day_of_week: 3, day_name: 'الإثنين', day_name_en: 'Monday', scheduled_time: '16:00:00', subject: 'chemistry', topic: 'الجدول الدوري والروابط', duration_minutes: 25, slot_type: 'review', status: 'upcoming' },
+      { student_id: studentId, day_of_week: 4, day_name: 'الثلاثاء', day_name_en: 'Tuesday', scheduled_time: '14:00:00', subject: 'biology', topic: 'تركيب الخلية الحية', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
+    ];
+
+    const { data: inserted } = await supabase
+      .from('study_schedule')
+      .insert(defaultSchedule)
+      .select('*');
+
+    return (inserted || []) as ScheduleSlotRow[];
+  }
   return data as ScheduleSlotRow[];
 }
 
@@ -415,7 +452,23 @@ export async function fetchLessonMastery(studentId: string): Promise<LessonMaste
     .eq('student_id', studentId)
     .order('subject')
     .order('lesson_order');
-  if (error) { console.error('fetchLessonMastery:', error); return []; }
+
+  if (error || !data || data.length === 0) {
+    // Auto-seed initial lesson mastery rows for a newly registered student
+    const defaultLessons = [
+      { student_id: studentId, subject: 'math', lesson_id: 'm1', lesson_title: 'المعادلات التفاضلية الأساسية', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
+      { student_id: studentId, subject: 'math', lesson_id: 'm2', lesson_title: 'التكامل المتقدم', lesson_order: 2, mastery: 0, unlocked: false, exam_score: null, exam_passed: false },
+      { student_id: studentId, subject: 'physics', lesson_id: 'p1', lesson_title: 'الحركة الدائرية والقوة المركزية', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
+      { student_id: studentId, subject: 'chemistry', lesson_id: 'c1', lesson_title: 'الروابط الكيميائية وتدرج الخواص', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
+    ];
+
+    const { data: inserted } = await supabase
+      .from('lesson_mastery')
+      .insert(defaultLessons)
+      .select('*');
+
+    return (inserted || []) as LessonMasteryRow[];
+  }
   return data as LessonMasteryRow[];
 }
 
