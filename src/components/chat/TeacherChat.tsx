@@ -5,7 +5,7 @@ import {
   ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Brain, History,
   X, PanelRightClose, PanelRightOpen, CheckCircle2, Circle,
   Headphones, BookOpen as BookIcon, PenTool,
-  Lock as LockIcon, Volume2, Zap,
+  Lock as LockIcon, Volume2, Zap, Loader2,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
@@ -18,8 +18,7 @@ import {
   fetchStudentProgress, fetchStudentSchedule, fetchLessonMasteryBySubject,
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
-
-const DEMO_STUDENT_ID = 'dfb49b28-c914-4711-91b6-12016f1e34a5';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
@@ -57,18 +56,19 @@ const TYPE_COLORS: Record<string, string> = {
   'exam-prep': 'text-red-400 bg-red-500/10',
 };
 
-// Proactive system prompts — the system initiates, not just responds
 const PROACTIVE_PROMPTS: Record<Subject, string[]> = {
   math: ['عايز نراجع الجبر سوا؟', 'درس التفاضل لسه مخلصناش — يلا نكمّله؟', 'لحظة، حابة أسألك حاجة في حساب التكامل'],
   physics: ['نيوتن لازم نثبّته كويس — نذاكره دلوقتي؟', 'الشغل والطاقة درس حلو جداً — جاهز؟', 'مستواك في الحركة حلو، ننتقل للكهرباء؟'],
-  chemistry: ['الجدول الدوري مهم جداً — نراجعه بسرعة؟', 'الروابط الكيميائية فهمتها؟ نتأكد سوا', 'يلا نبدأ التفاعلات الكيميائية — درس شيق'],
+  chemistry: ['الجدول الدوري مهم جداً — نراجع بسرعة؟', 'الروابط الكيميائية فهمتها؟ نتأكد سوا', 'يلا نبدأ التفاعلات الكيميائية — درس شيق'],
   biology: ['الخلية أساس كل حاجة — نراجعها؟', 'الانقسام المنصف محتاج تركيز — جاهز؟', 'الوراثة درس جميل جداً — نبدأه؟'],
-  history:['ثورة 1919 حدث مهم — نذاكره؟', 'تصريح 28 فبراير — عايز أشرحهولك؟', 'سعد زغلول شخصية محورية — نراجع دوره؟'],
+  history: ['ثورة 1919 حدث مهم — نذاكره؟', 'تصريح 28 فبراير — عايز أشرحهولك؟', 'سعد زغلول شخصية محورية — نراجع دوره؟'],
   english: ['قواعد الـ tenses محتاجة مراجعة — يلا؟', 'عايز نتدرب على writing مع بعض؟', 'reading comprehension — نتمرن سوا؟'],
   geography: ['موارد مصر الطبيعية — نذاكرها؟', 'خريطة مصر محتاجة تثبيت — جاهز؟', 'النشاط الاقتصادي — درس حلو نبدأه؟'],
 };
 
 export function TeacherChat({ messages: initialMessages, studentName }: TeacherChatProps) {
+  const activeStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') || 'dfb49b28-c914-4711-91b6-12016f1e34a5' : 'dfb49b28-c914-4711-91b6-12016f1e34a5';
+
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -92,19 +92,18 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   useEffect(() => {
     (async () => {
       const [p, s] = await Promise.all([
-        fetchStudentProgress(DEMO_STUDENT_ID),
-        fetchStudentSchedule(DEMO_STUDENT_ID),
+        fetchStudentProgress(activeStudentId),
+        fetchStudentSchedule(activeStudentId),
       ]);
       setDbProgress(p);
       setDbSchedule(s);
     })();
-  }, []);
+  }, [activeStudentId]);
 
   useEffect(() => {
-    fetchLessonMasteryBySubject(DEMO_STUDENT_ID, activeSubject).then(setDbLessons);
-  }, [activeSubject]);
+    fetchLessonMasteryBySubject(activeStudentId, activeSubject).then(setDbLessons);
+  }, [activeStudentId, activeSubject]);
 
-  // Auto-show proactive prompt after 5 seconds of inactivity
   useEffect(() => {
     if (!showProactive || messages.length > 2) return;
     const timer = setTimeout(() => {
@@ -123,7 +122,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     return () => clearTimeout(timer);
   }, [showProactive, activeSubject, messages.length]);
 
-  const send = (text?: string) => {
+  const send = async (text?: string) => {
     const content = text || input;
     if (!content.trim()) return;
     setShowProactive(false);
@@ -141,28 +140,59 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     setInput('');
     setTyping(true);
 
-    // Phase 1: typing — teacher is thinking
-    setTimeout(() => {
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+      let responseText = '';
+
+      if (apiKey) {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        const activeSubjectMeta = SUBJECT_META[detectedSubject];
+        const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
+تتحدث الآن مع الطالب/الطالبة: ${studentName}.
+المادة الحالية: ${activeSubjectMeta?.labelAr || detectedSubject}.
+تعليمات الشرح:
+1. خاطب الطالب دائماً باسمه الأصلي (${studentName}).
+2. اشرح المفاهيم بطريقة مشجعة ومبسطة باللهجة المصرية الفصيحة والودودة.
+3. قدم أمثلة توضيحية وخطوات عمل مرتبة ومباشرة.
+4. اجعل الإجابات محددة ومفيدة ولا تتجاوز فقرتين قصيرتين إلا إذا طُلب شرح مفصل.`;
+
+        const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
+        responseText = result.response.text();
+      } else {
+        responseText = `يا ${studentName}! سؤالك ممتاز في ${SUBJECT_META[detectedSubject]?.labelAr}. خليني أشرحلك الموضوع ده بخطوات بسيطة وواضحة جداً عشان تتأكد إنك فهمته 100%.`;
+      }
+
       setTyping(false);
       setDrawing(true);
-      const subjectMeta = SUBJECT_META[detectedSubject];
       const wb = SUBJECT_WHITEBOARDS[detectedSubject];
 
-      // Phase 2: drawing — teacher is drawing on whiteboard while talking
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'ai',
-        text: `سؤال حلو يا ${studentName}! خليني نشرحه سوا خطوة خطوة على السبورة.`,
+        text: responseText,
         timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
         reaction: 'encourage',
         hasWhiteboard: true,
         whiteboardSteps: wb,
       };
-      setMessages((m) => [...m, aiMsg]);
 
-      // Phase 3: drawing completes
-      setTimeout(() => setDrawing(false), 3000);
-    }, 1500);
+      setMessages((m) => [...m, aiMsg]);
+      setTimeout(() => setDrawing(false), 2000);
+    } catch (error) {
+      console.error('Gemini API Error:', error);
+      setTyping(false);
+      setDrawing(false);
+      const fallbackMsg: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: 'ai',
+        text: `يا ${studentName}، أنا معاك! خليني أسهلهالك ونحل السؤال ده سوا خطوة بخطوة.`,
+        timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+        reaction: 'encourage',
+      };
+      setMessages((m) => [...m, fallbackMsg]);
+    }
   };
 
   const suggestedQuestions = useMemo(() => {
@@ -322,7 +352,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '150ms' }} />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-neutral-600">لحظة، بفكر في إجابة...</span>
+              <span className="text-neutral-600">لحظة، بفكر في الإجابة لـ {studentName}...</span>
             </div>
           )}
           {drawing && (
@@ -373,7 +403,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   <span key={i} className="voice-bar w-1 rounded-full bg-red-500" style={{ animationDelay: `${i * 100}ms` }} />
                 ))}
               </div>
-              <span className="text-sm text-red-400">تكلم بصوتك — أنا سامعك</span>
+              <span className="text-sm text-red-400">تكلم بصوتك — أنا سامعك يا {studentName}</span>
               <button onClick={() => { setIsRecording(false); send('سؤال صوتي'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
                 إرسال
               </button>
@@ -417,7 +447,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <Calendar size={13} /> جلسة كاملة
             </button>
             <span className="text-xs text-neutral-600 flex items-center gap-1">
-              <History size={11} /> فاكر كل اللي ذاكرته قبل كده
+              <History size={11} /> فاكر كل اللي ذاكرته قبل كده يا {studentName}
             </span>
           </div>
         </div>
@@ -548,8 +578,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </div>
               <p className="text-sm text-neutral-300 leading-relaxed">
                 {subjectProgress?.weaknesses?.[0]
-                  ? `يلا نركّز شوية على ${subjectProgress.weaknesses[0]} — جلسة 25 دقيقة هتفهمك الموضوع تماماً`
-                  : 'جاهز نبدأ درس جديد في ' + activeMeta.labelAr + '؟'}
+                  ? `يا ${studentName}، يلا نركّز شوية على ${subjectProgress.weaknesses[0]} — جلسة 25 دقيقة هتفهمك الموضوع تماماً`
+                  : 'جاهز نبدأ درس جديد في ' + activeMeta.labelAr + ' يا ' + studentName + '؟'}
               </p>
               <button className="mt-2 w-full rounded-lg bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/20">
                 يلا نبدأ
