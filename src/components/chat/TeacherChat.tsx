@@ -152,16 +152,21 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
         const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
 تتحدث الآن مع الطالب/الطالبة: ${studentName}.
 المادة الحالية: ${activeSubjectMeta?.labelAr || detectedSubject}.
-تعليمات الشرح:
-1. خاطب الطالب دائماً باسمه الأصلي (${studentName}).
-2. اشرح المفاهيم بطريقة مشجعة ومبسطة باللهجة المصرية الفصيحة والودودة.
-3. قدم أمثلة توضيحية وخطوات عمل مرتبة ومباشرة.
-4. اجعل الإجابات محددة ومفيدة ولا تتجاوز فقرتين قصيرتين إلا إذا طُلب شرح مفصل.`;
+
+🎯 **التعليمات والقواعد الصارمة**:
+1. **اللهجة**: اتكلم حصرياً بـ **العامية المصرية السهلة والودودة جداً** (كأنك مدرس شاطر وقريب من الطالب وبيكلمه بحب وببساطة)، وبلاش الفصحى المعقدة.
+2. **الأسلوب التربوي (تكييف التفكير والأسلوب السقراطي)**: 
+   - **أوعى تدي الإجابة الجاهزة أبداً من أول مرة!** 
+   - دورك إنك تشجع الطالب وتسأله أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه.
+   - ساعد الطالب على الوصول للإجابة بنفسه من خلال التلميحات التدريجية.
+3. **الحدود والأخلاقيات الصارمة**: 
+   - ممنوع تماماً الكلام في الدين، السياسة، الجنس، العنف، إيذاء الآخرين، السرقة، أو أي موضوع خارج الأخلاق العامة والتعليم. لو الطالب اتكلم في حاجة برا الحدود دي، وجهه بلطف وبحزم للمذاكرة والأخلاق الحميدة.
+4. **الشخصية**: خليك ودو، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
 
         const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
         responseText = result.response.text();
       } else {
-        responseText = `يا ${studentName}! سؤالك ممتاز في ${SUBJECT_META[detectedSubject]?.labelAr}. خليني أشرحلك الموضوع ده بخطوات بسيطة وواضحة جداً عشان تتأكد إنك فهمته 100%.`;
+        responseText = `يا ${studentName}، أنا معاك! بس فهّمني أكتر، تفتكر الخطوة الأولى في حل السؤال ده ممكن تبدأ منين؟`;
       }
 
       setTyping(false);
@@ -187,7 +192,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       const fallbackMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'ai',
-        text: `يا ${studentName}، أنا معاك! خليني أسهلهالك ونحل السؤال ده سوا خطوة بخطوة.`,
+        text: `يا ${studentName}، أنا معاك! بس فهّمني أكتر، تفتكر الخطوة الأولى في حل السؤال ده ممكن تبدأ منين؟`,
         timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
         reaction: 'encourage',
       };
@@ -352,7 +357,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '150ms' }} />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-neutral-600">لحظة، بفكر في الإجابة لـ {studentName}...</span>
+              <span className="text-neutral-600">لحظة يا {studentName}، بفكر في السؤال معاك...</span>
             </div>
           )}
           {drawing && (
@@ -403,8 +408,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   <span key={i} className="voice-bar w-1 rounded-full bg-red-500" style={{ animationDelay: `${i * 100}ms` }} />
                 ))}
               </div>
-              <span className="text-sm text-red-400">تكلم بصوتك — أنا سامعك يا {studentName}</span>
-              <button onClick={() => { setIsRecording(false); send('سؤال صوتي'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
+              <span className="text-sm text-red-400">تكلم بصوتك يا {studentName} — أنا سامعك</span>
+              <button onClick={() => { setIsRecording(false); send('سؤال صوتية'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
                 إرسال
               </button>
               <button onClick={() => setIsRecording(false)} className="rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/30">
@@ -453,18 +458,15 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
         </div>
       </div>
 
-      {/* Side panel — desktop: collapsible sidebar; mobile: bottom sheet overlay */}
+      {/* Side panel */}
       {panelOpen && (
         <>
-          {/* Mobile backdrop */}
           <div
             className="fixed inset-0 z-40 bg-black/70 md:hidden"
             onClick={() => setPanelOpen(false)}
           />
 
-          {/* Panel content — desktop sidebar / mobile bottom sheet */}
           <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-[#2a2a2a] bg-[#141414] p-4 animate-slide-in-up md:static md:inset-auto md:z-auto md:max-h-none md:w-72 md:rounded-2xl md:border md:bg-[#141414] md:animate-slide-in-right md:shrink-0">
-            {/* Mobile drag handle */}
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-700 md:hidden" />
 
             <div className="flex items-center justify-between mb-3">
@@ -477,7 +479,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </button>
             </div>
 
-            {/* Current subject with real lesson mastery */}
             <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
               <div className="flex items-center gap-2 mb-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: activeMeta.accentSoft + '20', color: activeMeta.accent }}>
@@ -516,7 +517,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </div>
             </div>
 
-            {/* Today's schedule */}
             <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Calendar size={14} className="text-neutral-500" />
@@ -544,7 +544,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </div>
             </div>
 
-            {/* Weekly progress */}
             <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-neutral-500">تقدّم الأسبوع</span>
@@ -556,7 +555,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <p className="text-xs text-neutral-600 mt-2">{doneCount} من {totalCount} جلسة</p>
             </div>
 
-            {/* Stats */}
             <div className="mb-3 grid grid-cols-2 gap-2">
               <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
                 <Flame size={16} className="text-orange-400 mb-1" />
@@ -570,7 +568,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </div>
             </div>
 
-            {/* Smart suggestion */}
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles size={14} className="text-emerald-400" />
