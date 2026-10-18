@@ -141,12 +141,13 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     setTyping(true);
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
       let responseText = '';
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        // تم تحديث النموذج إلى gemini-3.8-flash الموصى به
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
         const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
@@ -155,18 +156,19 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
 🎯 **التعليمات والقواعد الصارمة**:
 1. **اللهجة**: اتكلم حصرياً بـ **العامية المصرية السهلة والودودة جداً** (كأنك مدرس شاطر وقريب من الطالب وبيكلمه بحب وببساطة)، وبلاش الفصحى المعقدة.
-2. **الأسلوب التربوي (تكييف التفكير والأسلوب السقراطي)**: 
+2. **الأسلوب التربوي (الأسلوب السقراطي وتشجيع التفكير)**: 
    - **أوعى تدي الإجابة الجاهزة أبداً من أول مرة!** 
-   - دورك إنك تشجع الطالب وتسأله أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه.
-   - ساعد الطالب على الوصول للإجابة بنفسه من خلال التلميحات التدريجية.
+   - دورك إنك تسأل الطالب أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه.
+   - ساعد الطالب خطوة بخطوة ووجهه بالتلميحات لحد ما يوصل للإجابة بنفسه من غير ما تحط الإجابة في بقه مباشرة.
 3. **الحدود والأخلاقيات الصارمة**: 
    - ممنوع تماماً الكلام في الدين، السياسة، الجنس، العنف، إيذاء الآخرين، السرقة، أو أي موضوع خارج الأخلاق العامة والتعليم. لو الطالب اتكلم في حاجة برا الحدود دي، وجهه بلطف وبحزم للمذاكرة والأخلاق الحميدة.
-4. **الشخصية**: خليك ودو، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
+4. **الشخصية**: خليك ودود، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
 
         const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
         responseText = result.response.text();
       } else {
-        responseText = `يا ${studentName}، أنا معاك! بس فهّمني أكتر، تفتكر الخطوة الأولى في حل السؤال ده ممكن تبدأ منين؟`;
+        console.warn('VITE_GEMINI_API_KEY is missing or empty!');
+        responseText = `يا ${studentName}، مفتاح الـ API مش متسجل في ملف البيئة (env). تأكد من إضافته وإعادة تشغيل السيرفر.`;
       }
 
       setTyping(false);
@@ -186,7 +188,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       setMessages((m) => [...m, aiMsg]);
       setTimeout(() => setDrawing(false), 2000);
     } catch (error) {
-      console.error('Gemini API Error:', error);
+      console.error('Gemini API Error details:', error);
       setTyping(false);
       setDrawing(false);
       const fallbackMsg: ChatMessage = {
@@ -271,7 +273,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           </div>
         </div>
 
-        {/* Subject selector — collapsible compact horizontal bar */}
+        {/* Subject selector */}
         <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {subjectBarOpen ? (
             <div className="flex items-center gap-2">
@@ -399,7 +401,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           </div>
         )}
 
-        {/* Input — voice is primary */}
+        {/* Input */}
         <div className="border-t border-[#2a2a2a] p-3">
           {isRecording ? (
             <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3">
@@ -409,7 +411,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 ))}
               </div>
               <span className="text-sm text-red-400">تكلم بصوتك يا {studentName} — أنا سامعك</span>
-              <button onClick={() => { setIsRecording(false); send('سؤال صوتية'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
+              <button onClick={() => { setIsRecording(false); send('سؤال صوتي'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
                 إرسال
               </button>
               <button onClick={() => setIsRecording(false)} className="rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/30">
