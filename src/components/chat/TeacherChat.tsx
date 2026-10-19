@@ -19,7 +19,6 @@ import {
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { supabase } from '@/lib/supabase';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
@@ -125,27 +124,24 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
   useEffect(() => {
     (async () => {
-      const [p, s] = await Promise.all([
-        fetchStudentProgress(activeStudentId),
-        fetchStudentSchedule(activeStudentId),
-      ]);
-      setDbProgress(p);
-      setDbSchedule(s);
+      try {
+        const [p, s] = await Promise.all([
+          fetchStudentProgress(activeStudentId),
+          fetchStudentSchedule(activeStudentId),
+        ]);
+        setDbProgress(p || []);
+        setDbSchedule(s || []);
 
-      const { data: studentData } = await supabase
-        .from('students')
-        .select('curriculum_name')
-        .eq('id', activeStudentId)
-        .single();
-      
-      if (studentData?.curriculum_name) {
-        setStudentCurriculum(studentData.curriculum_name);
+      } catch (err) {
+        console.error('Error loading student context:', err);
       }
     })();
   }, [activeStudentId]);
 
   useEffect(() => {
-    fetchLessonMasteryBySubject(activeStudentId, activeSubject).then(setDbLessons);
+    fetchLessonMasteryBySubject(activeStudentId, activeSubject)
+      .then((res) => setDbLessons(res || []))
+      .catch((err) => console.error('Error loading lessons:', err));
   }, [activeStudentId, activeSubject]);
 
   useEffect(() => {
@@ -194,7 +190,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
+        // استخدام الموديل المستقر المعتمد لتفادي الشاشة السوداء
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
