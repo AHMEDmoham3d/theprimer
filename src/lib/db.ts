@@ -230,10 +230,21 @@ export async function createStudent(input: {
   return data as StudentRow;
 }
 
+// ─── Curricula Management Functions ───
+
 export async function fetchCurricula(): Promise<CurriculumRow[]> {
   const { data, error } = await supabase.from('curricula').select('*').order('name');
   if (error) { console.error('fetchCurricula:', error); return []; }
   return data as CurriculumRow[];
+}
+
+export async function updateStudentCurriculum(studentId: string, curriculumId: string, curriculumName: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('students')
+    .update({ curriculum_id: curriculumId, curriculum_name: curriculumName })
+    .eq('id', studentId);
+  if (error) { console.error('updateStudentCurriculum:', error); return false; }
+  return true;
 }
 
 export async function fetchCurriculumSubjects(curriculumId: string): Promise<CurriculumSubjectRow[]> {
@@ -337,7 +348,6 @@ export async function fetchStudentProgress(studentId: string): Promise<StudentPr
     .order('subject');
   
   if (error || !data || data.length === 0) {
-    // Auto-seed initial real progress rows for a newly registered student
     const defaultSubjects = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];
     const initialRows = defaultSubjects.map((subject) => ({
       student_id: studentId,
@@ -393,7 +403,6 @@ export async function fetchStudentSchedule(studentId: string): Promise<ScheduleS
     .order('scheduled_time');
 
   if (error || !data || data.length === 0) {
-    // Auto-seed initial study schedule for a newly registered student
     const defaultSchedule = [
       { student_id: studentId, day_of_week: 1, day_name: 'السبت', day_name_en: 'Saturday', scheduled_time: '16:00:00', subject: 'math', topic: 'مقدمة في الجبر والتحليل', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
       { student_id: studentId, day_of_week: 2, day_name: 'الأحد', day_name_en: 'Sunday', scheduled_time: '15:00:00', subject: 'physics', topic: 'قوانين الحركة الأساسية', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
@@ -454,7 +463,6 @@ export async function fetchLessonMastery(studentId: string): Promise<LessonMaste
     .order('lesson_order');
 
   if (error || !data || data.length === 0) {
-    // Auto-seed initial lesson mastery rows for a newly registered student
     const defaultLessons = [
       { student_id: studentId, subject: 'math', lesson_id: 'm1', lesson_title: 'المعادلات التفاضلية الأساسية', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
       { student_id: studentId, subject: 'math', lesson_id: 'm2', lesson_title: 'التكامل المتقدم', lesson_order: 2, mastery: 0, unlocked: false, exam_score: null, exam_passed: false },
@@ -511,7 +519,7 @@ export async function canSendWhatsApp(studentId: string): Promise<boolean> {
     .select('last_whatsapp_sent')
     .eq('id', studentId)
     .maybeSingle();
-  if (error || !data) return true;
+  if (error || !data || !data.last_whatsapp_sent) return true;
   const lastSent = new Date(data.last_whatsapp_sent).getTime();
   const now = Date.now();
   const hoursSince = (now - lastSent) / (1000 * 60 * 60);

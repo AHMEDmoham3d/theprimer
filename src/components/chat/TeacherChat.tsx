@@ -5,13 +5,13 @@ import {
   ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Brain, History,
   X, PanelRightClose, PanelRightOpen, CheckCircle2, Circle,
   Headphones, BookOpen as BookIcon, PenTool,
-  Lock as LockIcon, Volume2, Zap, Loader2,
+  Lock as LockIcon, Volume2, Zap, Loader2, BookMarked, GraduationCap,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
 import { SUBJECT_META, ALL_SUBJECTS } from '@/data/subjects';
 import {
-  SMART_QUESTIONS, SUBJECT_WHITEBOARDS, CURRICULUM_LESSONS,
+  SMART_QUESTIONS, CURRICULUM_LESSONS,
 } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
@@ -19,11 +19,44 @@ import {
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { supabase } from '@/lib/supabase';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
   studentName: string;
 }
+
+// سبورة تفاعلية مخصصة لكل مادة عشان تظهر الحاجة الصح مش مثلث وخلاص
+const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
+  math: {
+    title: 'توضيح القاعدة الرياضية والخطوات',
+    steps: ['1. كتابة المعطيات وتحديد المطلوب في المعادلة', '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة', '3. الوصول للحل النهائي والتحقق من صحته']
+  },
+  physics: {
+    title: 'تحليل القوانين والقوى الفيزيائية',
+    steps: ['1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل والطاقة)', '2. تعويض الأرقام والوحدات القياسية', '3. استنتاج النتيجة الفيزيائية']
+  },
+  chemistry: {
+    title: 'توضيح التفاعل والروابط الكيميائية',
+    steps: ['1. كتابة رموز العناصر المشاركة في التفاعل', '2. توزيع الإلكترونات وتحديد نوع الرابطة', '3. وزن المعادلة الكيميائية النهائية']
+  },
+  biology: {
+    title: 'مخطط العمليات الحيوية في الخلية',
+    steps: ['1. تحديد العضو أو الخلية المستهدفة', '2. توضيح مراحل الانقسام أو التفاعل الحيوي', '3. تلخيص الوظيفة النهائية']
+  },
+  history: {
+    title: 'تسلسل الأحداث والتواريخ المهمة',
+    steps: ['1. تحديد الحدث الرئيسي والأطراف المشاركة', '2. توضيح الأسباب والنتائج المترتبة عليه', '3. ربط الحدث بالسياق التاريخي العام']
+  },
+  english: {
+    title: 'قاعدة الجرامر وبناء الجملة',
+    steps: ['1. كتابة التكوين الأساسي للقاعدة (Structure)', '2. إعطاء أمثلة توضيحية للإثبات والنفي', '3. تطبيق تدريب سريع للتأكيد']
+  },
+  geography: {
+    title: 'تحليل الظواهر الجغرافية والموارد',
+    steps: ['1. تحديد الموقع أو الظاهرة على الخريطة', '2. دراسة العوامل المؤثرة (م المناخ، التضاريس)', '3. استنتاج التوزيع الاقتصادي أو السكاني']
+  },
+};
 
 function detectSubject(text: string): Subject {
   const lower = text.toLowerCase();
@@ -82,6 +115,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   const [dbProgress, setDbProgress] = useState<StudentProgressRow[]>([]);
   const [dbSchedule, setDbSchedule] = useState<ScheduleSlotRow[]>([]);
   const [dbLessons, setDbLessons] = useState<LessonMasteryRow[]>([]);
+  const [studentCurriculum, setStudentCurriculum] = useState<string>('المنهج العام (المصري)');
   const [showProactive, setShowProactive] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -97,6 +131,16 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       ]);
       setDbProgress(p);
       setDbSchedule(s);
+
+      const { data: studentData } = await supabase
+        .from('students')
+        .select('curriculum_name')
+        .eq('id', activeStudentId)
+        .single();
+      
+      if (studentData?.curriculum_name) {
+        setStudentCurriculum(studentData.curriculum_name);
+      }
     })();
   }, [activeStudentId]);
 
@@ -122,6 +166,10 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     return () => clearTimeout(timer);
   }, [showProactive, activeSubject, messages.length]);
 
+  const currentActiveLesson = useMemo(() => {
+    return dbLessons.find((l) => l.unlocked && !l.exam_passed) || dbLessons[0];
+  }, [dbLessons]);
+
   const send = async (text?: string) => {
     const content = text || input;
     if (!content.trim()) return;
@@ -146,23 +194,26 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // تم تحديث النموذج إلى gemini-3.8-flash الموصى به
         const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
+        const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
+
         const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
 تتحدث الآن مع الطالب/الطالبة: ${studentName}.
 المادة الحالية: ${activeSubjectMeta?.labelAr || detectedSubject}.
+النظام الدراسي / المنهج: ${studentCurriculum}.
+الدرس الحالي الذي يدرسه الطالب الآن: "${lessonTitle}".
 
 🎯 **التعليمات والقواعد الصارمة**:
 1. **اللهجة**: اتكلم حصرياً بـ **العامية المصرية السهلة والودودة جداً** (كأنك مدرس شاطر وقريب من الطالب وبيكلمه بحب وببساطة)، وبلاش الفصحى المعقدة.
-2. **الأسلوب التربوي (الأسلوب السقراطي وتشجيع التفكير)**: 
+2. **الارتباط بالدرس الحالي**: وجّه الشرح والنقاش والأسئلة لخدمة ومواءمة الدرس الحالي ("${lessonTitle}") ومعايير منهج (${studentCurriculum}).
+3. **الأسلوب التربوي (الأسلوب السقراطي وتشجيع التفكير)**: 
    - **أوعى تدي الإجابة الجاهزة أبداً من أول مرة!** 
-   - دورك إنك تسأل الطالب أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه.
-   - ساعد الطالب خطوة بخطوة ووجهه بالتلميحات لحد ما يوصل للإجابة بنفسه من غير ما تحط الإجابة في بقه مباشرة.
-3. **الحدود والأخلاقيات الصارمة**: 
-   - ممنوع تماماً الكلام في الدين، السياسة، الجنس، العنف، إيذاء الآخرين، السرقة، أو أي موضوع خارج الأخلاق العامة والتعليم. لو الطالب اتكلم في حاجة برا الحدود دي، وجهه بلطف وبحزم للمذاكرة والأخلاق الحميدة.
-4. **الشخصية**: خليك ودود، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
+   - دورك إنك تسأل الطالب أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه خطوة بخطوة.
+4. **الحدود والأخلاقيات الصارمة**: 
+   - ممنوع تماماً الكلام في الدين، السياسة، الجنس، العنف، إيذاء الآخرين، أو أي موضوع خارج الأخلاق العامة والتعليم. لو الطالب اتكلم في حاجة برا الحدود دي، وجهه بلطف وبحزم للمذاكرة والأخلاق الحميدة.
+5. **الشخصية**: خليك ودود، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
 
         const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
         responseText = result.response.text();
@@ -173,7 +224,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       setTyping(false);
       setDrawing(true);
-      const wb = SUBJECT_WHITEBOARDS[detectedSubject];
+      
+      const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
 
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
@@ -182,7 +234,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
         timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
         reaction: 'encourage',
         hasWhiteboard: true,
-        whiteboardSteps: wb,
+        whiteboardSteps: currentWb.steps as unknown as NonNullable<ChatMessage['whiteboardSteps']>,
       };
 
       setMessages((m) => [...m, aiMsg]);
@@ -194,7 +246,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       const fallbackMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'ai',
-        text: `يا ${studentName}، أنا معاك! بس فهّمني أكتر، تفتكر الخطوة الأولى في حل السؤال ده ممكن تبدأ منين؟`,
+        text: `يا ${studentName}، أنا معاك في درس (${currentActiveLesson?.lesson_title || 'المادة'}) بمنهج ${studentCurriculum}! فكر معايا، إيه أول خطوة نبدأ بيها؟`,
         timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
         reaction: 'encourage',
       };
@@ -232,8 +284,18 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
             <div className="absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-[#141414] bg-green-500" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-bold text-white truncate">مدرّسك في {activeMeta.labelAr}</span>
-            <span className="text-xs text-green-400 flex items-center gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-white truncate">مدرّسك في {activeMeta.labelAr}</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">
+                <BookMarked size={10} /> {studentCurriculum}
+              </span>
+              {currentActiveLesson && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[10px] font-medium border border-blue-500/20 truncate max-w-[200px]">
+                  <GraduationCap size={10} /> {currentActiveLesson.lesson_title}
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
               {voiceActive ? 'معاك دلوقتي' : 'جاهز أي وقت'}
             </span>
@@ -336,14 +398,14 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   <BookIcon size={20} />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-white">{activeMeta.labelAr}</p>
-                  <p className="text-[10px] text-neutral-500">اكتب سؤالك أو اسأل بصوتك — هنشرحهولك ببساطة على السبورة</p>
+                  <p className="text-sm font-bold text-white">{activeMeta.labelAr} — درس: {currentActiveLesson?.lesson_title || 'عام'}</p>
+                  <p className="text-[10px] text-neutral-500">النظام والدعم الذكي متصلان خصيصاً لمنهجك ({studentCurriculum})</p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-[10px] text-neutral-500">
-                <span className="flex items-center gap-1"><PenTool size={11} /> سبورة وشرح</span>
+                <span className="flex items-center gap-1"><PenTool size={11} /> سبورة مخصصة</span>
                 <span className="flex items-center gap-1"><Clock size={11} /> فوري</span>
-                <span className="flex items-center gap-1"><Brain size={11} /> فاهم مستواك</span>
+                <span className="flex items-center gap-1"><Brain size={11} /> أسلوب سقراطي تفاعلي</span>
                 {voiceActive && <span className="flex items-center gap-1 text-green-400"><Volume2 size={11} /> صوت شغال</span>}
               </div>
             </div>
@@ -359,7 +421,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '150ms' }} />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-neutral-600">لحظة يا {studentName}، بفكر في السؤال معاك...</span>
+              <span className="text-neutral-600">بجهّز الشرح لدرس ({currentActiveLesson?.lesson_title})...</span>
             </div>
           )}
           {drawing && (
@@ -367,7 +429,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-xs font-bold text-white">P</div>
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <PenTool size={14} className="text-emerald-400 animate-pulse" />
-                <span>بيرسم على السبورة خطوة خطوة...</span>
+                <span>جاري إعداد السبورة التفاعلية للدرس...</span>
                 {voiceActive && (
                   <div className="flex items-end gap-0.5 mr-2">
                     {[4, 8, 5, 10, 6, 9, 4, 7].map((h, i) => (
@@ -385,7 +447,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           <div className="border-t border-[#2a2a2a] px-4 py-3">
             <p className="text-[10px] text-neutral-500 mb-2 flex items-center gap-1">
               <Lightbulb size={12} className="text-amber-400" />
-              أسئلة جاهزة تقدر تبدأ بيها في {activeMeta.labelAr}
+              أسئلة مقترحة في {activeMeta.labelAr}
             </p>
             <div className="flex flex-wrap gap-2">
               {suggestedQuestions.map((q) => (
@@ -410,7 +472,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   <span key={i} className="voice-bar w-1 rounded-full bg-red-500" style={{ animationDelay: `${i * 100}ms` }} />
                 ))}
               </div>
-              <span className="text-sm text-red-400">تكلم بصوتك يا {studentName} — أنا سامعك</span>
+              <span className="text-sm text-red-400">تكلم بصوتك يا {studentName} — أنا سامعك في {activeMeta.labelAr}</span>
               <button onClick={() => { setIsRecording(false); send('سؤال صوتي'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
                 إرسال
               </button>
@@ -427,7 +489,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="اكتب سؤالك هنا..."
+                placeholder={`اسأل في درس (${currentActiveLesson?.lesson_title || activeMeta.labelAr})...`}
                 className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-3 sm:px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444] min-w-0"
               />
               <button
@@ -451,10 +513,10 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           )}
           <div className="mt-2 flex items-center justify-between px-2">
             <button className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-white transition">
-              <Calendar size={13} /> جلسة كاملة
+              <Calendar size={13} /> جلسة تفاعلية
             </button>
             <span className="text-xs text-neutral-600 flex items-center gap-1">
-              <History size={11} /> فاكر كل اللي ذاكرته قبل كده يا {studentName}
+              <History size={11} /> متابع مستواك في {activeMeta.labelAr} يا {studentName}
             </span>
           </div>
         </div>
@@ -474,11 +536,22 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Brain size={16} className="text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">لوحة التعلم</h3>
+                <h3 className="text-sm font-bold text-white">تفاصيل المنهج والدرس</h3>
               </div>
               <button onClick={() => setPanelOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition" title="إخفاء">
                 <X size={16} />
               </button>
+            </div>
+
+            <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
+              <div>
+                <p className="text-[10px] text-neutral-500">المنظومة:</p>
+                <p className="text-xs font-bold text-emerald-400">{studentCurriculum}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-neutral-500">الدرس الحالي:</p>
+                <p className="text-xs font-bold text-blue-400">{currentActiveLesson?.lesson_title || 'لا يوجد درس نشط'}</p>
+              </div>
             </div>
 
             <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
@@ -491,7 +564,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               {subjectProgress && (
                 <div className="mb-3">
                   <div className="flex items-center justify-between text-xs text-neutral-500 mb-1">
-                    <span>مستوى الفهم</span>
+                    <span>مستوى الفهم في {activeMeta.labelAr}</span>
                     <span style={{ color: activeMeta.accent }}>{subjectProgress.mastery}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
@@ -577,8 +650,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               </div>
               <p className="text-sm text-neutral-300 leading-relaxed">
                 {subjectProgress?.weaknesses?.[0]
-                  ? `يا ${studentName}، يلا نركّز شوية على ${subjectProgress.weaknesses[0]} — جلسة 25 دقيقة هتفهمك الموضوع تماماً`
-                  : 'جاهز نبدأ درس جديد في ' + activeMeta.labelAr + ' يا ' + studentName + '؟'}
+                  ? `يا ${studentName}، يلا نركّز شوية على ${subjectProgress.weaknesses[0]} في ${activeMeta.labelAr}`
+                  : `جاهز نبدأ درس جديد في ${activeMeta.labelAr} يا ${studentName}؟`}
               </p>
               <button className="mt-2 w-full rounded-lg bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/20">
                 يلا نبدأ

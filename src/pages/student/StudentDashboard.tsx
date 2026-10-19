@@ -3,6 +3,7 @@ import { Flame, Target, Clock, TrendingUp, MessageSquare, Calendar, Video, Spark
 import { Card, StatCard, Badge, ProgressBar, Avatar } from '@/components/ui';
 import { NOTIFICATIONS } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
+import { CurriculumSelector } from '@/components/CurriculumSelector';
 import type { StudentPageProps } from './types';
 import { cn } from '@/lib/utils';
 import {
@@ -173,6 +174,15 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
           </div>
         </div>
       </Card>
+
+      {/* Curriculum Selector Integration */}
+      <CurriculumSelector
+        studentId={activeStudentId}
+        currentCurriculumId={studentData?.curriculum_id}
+        onCurriculumUpdated={(updatedName) => {
+          console.log('تم تحديث المنهج إلى:', updatedName);
+        }}
+      />
 
       {/* Stats - Real data */}
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
