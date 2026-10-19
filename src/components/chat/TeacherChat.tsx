@@ -26,7 +26,6 @@ interface TeacherChatProps {
   studentName: string;
 }
 
-// سبورة تفاعلية مخصصة لكل مادة
 const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
   math: {
     title: 'توضيح القاعدة الرياضية والخطوات',
@@ -143,7 +142,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           setStudentCurriculum(studentData.curriculum_name);
         }
       } catch (err) {
-        console.warn('Database offline or restricted access, using default state.', err);
+        console.warn('Database fallback active', err);
       }
     })();
   }, [activeStudentId]);
@@ -200,7 +199,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        // تم ضبط الموديل الصحيح بناءً على رسالة الخطأ الرسمية من جوجل
+        const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
@@ -224,8 +224,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
         const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
         responseText = result.response.text();
       } else {
-        console.warn('VITE_GEMINI_API_KEY is missing or empty!');
-        responseText = `يا ${studentName}، مفتاح الـ API مش متسجل في ملف البيئة (env). تأكد من إضافته وإعادة تشغيل السيرفر.`;
+        responseText = `يا ${studentName}، مفتاح الـ API مش متسجل في ملف البيئة (env).`;
       }
 
       setTyping(false);
@@ -280,9 +279,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col md:flex-row gap-3">
-      {/* Main learning panel */}
       <div className="flex flex-1 flex-col rounded-2xl border border-[#2a2a2a] bg-[#141414] overflow-hidden min-h-0">
-        {/* Header */}
         <div className="flex items-center gap-3 border-b border-[#2a2a2a] px-4 py-3 bg-gradient-to-l from-[#1a1a1a] to-[#141414]">
           <div className="relative shrink-0">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-neutral-600 to-neutral-900 border border-neutral-500 text-white font-bold text-base">
@@ -314,7 +311,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
                 voiceOn ? 'bg-white text-black' : 'bg-neutral-800 text-neutral-500'
               )}
-              title={voiceOn ? 'الصوت شغال' : 'الصوت متوقف'}
             >
               {voiceOn ? <Volume2 size={14} /> : <MicOff size={14} />}
               <span>{voiceOn ? 'صوت' : 'صامت'}</span>
@@ -342,7 +338,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           </div>
         </div>
 
-        {/* Subject selector */}
         <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {subjectBarOpen ? (
             <div className="flex items-center gap-2">
@@ -378,7 +373,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <button
                 onClick={() => setSubjectBarOpen(false)}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:text-white hover:bg-neutral-800 transition"
-                title="إخفاء المواد"
               >
                 <ChevronUp size={16} />
               </button>
@@ -396,7 +390,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           )}
         </div>
 
-        {/* Session content */}
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0">
           {messages.length <= 2 && (
             <div className="rounded-xl border border-[#2a2a2a] bg-gradient-to-br from-[#1a1a1a] to-[#141414] p-4">
@@ -408,12 +401,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   <p className="text-sm font-bold text-white">{activeMeta.labelAr} — درس: {currentActiveLesson?.lesson_title || 'عام'}</p>
                   <p className="text-[10px] text-neutral-500">النظام والدعم الذكي متصلان خصيصاً لمنهجك ({studentCurriculum})</p>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-[10px] text-neutral-500">
-                <span className="flex items-center gap-1"><PenTool size={11} /> سبورة مخصصة</span>
-                <span className="flex items-center gap-1"><Clock size={11} /> فوري</span>
-                <span className="flex items-center gap-1"><Brain size={11} /> أسلوب سقراطي تفاعلي</span>
-                {voiceActive && <span className="flex items-center gap-1 text-green-400"><Volume2 size={11} /> صوت شغال</span>}
               </div>
             </div>
           )}
@@ -437,19 +424,11 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <PenTool size={14} className="text-emerald-400 animate-pulse" />
                 <span>جاري إعداد السبورة التفاعلية للدرس...</span>
-                {voiceActive && (
-                  <div className="flex items-end gap-0.5 mr-2">
-                    {[4, 8, 5, 10, 6, 9, 4, 7].map((h, i) => (
-                      <span key={i} className="w-0.5 rounded-full bg-emerald-400 animate-pulse" style={{ height: `${h}px`, animationDelay: `${i * 80}ms` }} />
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Suggested questions */}
         {messages.length <= 4 && (
           <div className="border-t border-[#2a2a2a] px-4 py-3">
             <p className="text-[10px] text-neutral-500 mb-2 flex items-center gap-1">
@@ -470,202 +449,44 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           </div>
         )}
 
-        {/* Input */}
         <div className="border-t border-[#2a2a2a] p-3">
-          {isRecording ? (
-            <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3">
-              <div className="flex items-end gap-0.5">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span key={i} className="voice-bar w-1 rounded-full bg-red-500" style={{ animationDelay: `${i * 100}ms` }} />
-                ))}
-              </div>
-              <span className="text-sm text-red-400">تكلم بصوتك يا {studentName} — أنا سامعك في {activeMeta.labelAr}</span>
-              <button onClick={() => { setIsRecording(false); send('سؤال صوتي'); }} className="mr-auto rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-neutral-200">
-                إرسال
-              </button>
-              <button onClick={() => setIsRecording(false)} className="rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/30">
-                إلغاء
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition">
-                <Paperclip size={18} />
-              </button>
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder={`اسأل في درس (${currentActiveLesson?.lesson_title || activeMeta.labelAr})...`}
-                className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-3 sm:px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444] min-w-0"
-              />
-              <button
-                onClick={() => setIsRecording(true)}
-                className={cn(
-                  'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition',
-                  voiceActive ? 'bg-white text-black hover:bg-neutral-200' : 'bg-neutral-800 text-neutral-500'
-                )}
-                title="اسأل بصوتك"
-              >
-                <Mic size={18} />
-              </button>
-              <button
-                onClick={() => send()}
-                disabled={!input.trim()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          )}
-          <div className="mt-2 flex items-center justify-between px-2">
-            <button className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-white transition">
-              <Calendar size={13} /> جلسة تفاعلية
+          <div className="flex items-center gap-2">
+            <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition">
+              <Paperclip size={18} />
             </button>
-            <span className="text-xs text-neutral-600 flex items-center gap-1">
-              <History size={11} /> متابع مستواك في {activeMeta.labelAr} يا {studentName}
-            </span>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && send()}
+              placeholder={`اسأل في درس (${currentActiveLesson?.lesson_title || activeMeta.labelAr})...`}
+              className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-3 sm:px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444] min-w-0"
+            />
+            <button
+              onClick={() => send()}
+              disabled={!input.trim()}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
+            >
+              <Send size={18} />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Side panel */}
       {panelOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/70 md:hidden"
-            onClick={() => setPanelOpen(false)}
-          />
-
-          <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-[#2a2a2a] bg-[#141414] p-4 animate-slide-in-up md:static md:inset-auto md:z-auto md:max-h-none md:w-72 md:rounded-2xl md:border md:bg-[#141414] md:animate-slide-in-right md:shrink-0">
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-700 md:hidden" />
-
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Brain size={16} className="text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">تفاصيل المنهج والدرس</h3>
-              </div>
-              <button onClick={() => setPanelOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition" title="إخفاء">
-                <X size={16} />
-              </button>
+        <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-[#2a2a2a] bg-[#141414] p-4 md:static md:w-72 md:rounded-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Brain size={16} className="text-emerald-400" />
+              <h3 className="text-sm font-bold text-white">تفاصيل المنهج والدرس</h3>
             </div>
-
-            <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
-              <div>
-                <p className="text-[10px] text-neutral-500">المنظومة:</p>
-                <p className="text-xs font-bold text-emerald-400">{studentCurriculum}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-neutral-500">الدرس الحالي:</p>
-                <p className="text-xs font-bold text-blue-400">{currentActiveLesson?.lesson_title || 'لا يوجد درس نشط'}</p>
-              </div>
-            </div>
-
-            <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: activeMeta.accentSoft + '20', color: activeMeta.accent }}>
-                  <ActiveIcon size={16} />
-                </div>
-                <span className="text-sm font-bold text-white">{activeMeta.labelAr}</span>
-              </div>
-              {subjectProgress && (
-                <div className="mb-3">
-                  <div className="flex items-center justify-between text-xs text-neutral-500 mb-1">
-                    <span>مستوى الفهم في {activeMeta.labelAr}</span>
-                    <span style={{ color: activeMeta.accent }}>{subjectProgress.mastery}%</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${subjectProgress.mastery}%`, background: activeMeta.accent }} />
-                  </div>
-                </div>
-              )}
-              <div className="space-y-2">
-                {dbLessons.length > 0 ? dbLessons.slice(0, 5).map((lesson) => {
-                  const isDone = lesson.mastery >= 100 && lesson.exam_passed;
-                  const isLocked = !lesson.unlocked;
-                  return (
-                    <div key={lesson.id} className="flex items-center gap-2 text-sm">
-                      {isLocked ? <LockIcon size={14} className="text-neutral-600 shrink-0" /> : isDone ? <CheckCircle2 size={14} className="text-emerald-400 shrink-0" /> : <Circle size={14} className="text-amber-400 shrink-0" />}
-                      <span className={cn('flex-1 min-w-0 truncate', isLocked ? 'text-neutral-600' : isDone ? 'text-neutral-400 line-through' : 'text-neutral-300')}>{lesson.lesson_title}</span>
-                      {!isLocked && !isDone && lesson.mastery > 0 && <span className="text-xs text-neutral-500 shrink-0">{lesson.mastery}%</span>}
-                    </div>
-                  );
-                }) : currentLessons.slice(0, 4).map((lesson, i) => (
-                  <div key={lesson.id} className="flex items-center gap-2 text-sm">
-                    {i < 2 ? <CheckCircle2 size={14} className="text-emerald-400 shrink-0" /> : <Circle size={14} className="text-neutral-600 shrink-0" />}
-                    <span className={cn('flex-1 min-w-0 truncate', i < 2 ? 'text-neutral-400 line-through' : 'text-neutral-300')}>{lesson.title}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Calendar size={14} className="text-neutral-500" />
-                <span className="text-xs text-neutral-500">جدول اليوم — تلقائي</span>
-              </div>
-              <div className="space-y-2.5">
-                {todaySlots.map((slot, i) => {
-                  const meta = SUBJECT_META[slot.subject as keyof typeof SUBJECT_META] ?? SUBJECT_META.math;
-                  const Icon = meta.icon;
-                  return (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-neutral-600 w-12 shrink-0">{slot.scheduled_time}</span>
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: meta.accentSoft + '20', color: meta.accent }}>
-                        <Icon size={14} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={cn('text-sm truncate', slot.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-300')}>{slot.topic}</p>
-                        <span className={cn('text-[10px] px-1.5 rounded inline-block', TYPE_COLORS[slot.slot_type])}>{TYPE_LABELS[slot.slot_type]}</span>
-                      </div>
-                      {slot.status === 'done' && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
-                    </div>
-                  );
-                })}
-                {todaySlots.length === 0 && <p className="text-xs text-neutral-600 text-center py-2">لا توجد مواعيد جدول لليوم</p>}
-              </div>
-            </div>
-
-            <div className="mb-3 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-neutral-500">تقدّم الأسبوع</span>
-                <span className="text-sm font-bold text-emerald-400">{weekProgress}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all" style={{ width: `${weekProgress}%` }} />
-              </div>
-              <p className="text-xs text-neutral-600 mt-2">{doneCount} من {totalCount} جلسة</p>
-            </div>
-
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
-                <Flame size={16} className="text-orange-400 mb-1" />
-                <p className="text-base font-bold text-white">12 يوم</p>
-                <p className="text-[10px] text-neutral-500">متتالية</p>
-              </div>
-              <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
-                <Clock size={16} className="text-blue-400 mb-1" />
-                <p className="text-base font-bold text-white">45 د</p>
-                <p className="text-[10px] text-neutral-500">اليوم</p>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles size={14} className="text-emerald-400" />
-                <span className="text-xs font-medium text-emerald-300">اقتراح</span>
-              </div>
-              <p className="text-sm text-neutral-300 leading-relaxed">
-                {subjectProgress?.weaknesses?.[0]
-                  ? `يا ${studentName}، يلا نركّز شوية على ${subjectProgress.weaknesses[0]} في ${activeMeta.labelAr}`
-                  : `جاهز نبدأ درس جديد في ${activeMeta.labelAr} يا ${studentName}؟`}
-              </p>
-              <button className="mt-2 w-full rounded-lg bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/20">
-                يلا نبدأ
-              </button>
-            </div>
+            <button onClick={() => setPanelOpen(false)} className="text-neutral-400 hover:text-white">
+              <X size={16} />
+            </button>
           </div>
-        </>
+          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
+            <p className="text-xs font-bold text-emerald-400">{studentCurriculum}</p>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -685,30 +506,9 @@ function MessageBubble({ message, studentName, voiceActive }: { message: ChatMes
         <div className={cn('rounded-2xl px-4 py-3 text-sm leading-relaxed', isAI ? 'bg-[#1c1c1c] text-neutral-100' : 'bg-white text-black mr-auto')}>
           {message.text}
         </div>
-
-        {voiceActive && isAI && (
-          <button className="flex items-center gap-2 rounded-lg bg-[#1c1c1c] px-3 py-2 text-xs text-neutral-300 hover:text-white transition">
-            <Play size={14} />
-            استمع
-            <div className="flex items-end gap-0.5">
-              {[3, 6, 4, 8, 5, 7, 3].map((h, i) => (
-                <span key={i} className="w-0.5 rounded-full bg-neutral-500" style={{ height: `${h}px` }} />
-              ))}
-            </div>
-          </button>
-        )}
-
         {message.hasWhiteboard && message.whiteboardSteps && (
           <Whiteboard steps={message.whiteboardSteps} className="max-w-md" />
         )}
-
-        {isAI && message.reaction === 'celebrate' && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-400">
-            <Sparkles size={14} />
-            <span>أحسنت يا {studentName}!</span>
-          </div>
-        )}
-
         <span className="block text-[10px] text-neutral-600">{message.timestamp}</span>
       </div>
     </div>
