@@ -19,6 +19,14 @@ import {
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+export const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 interface TeacherChatProps {
   messages: ChatMessage[];
@@ -132,6 +140,17 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
         setDbProgress(p || []);
         setDbSchedule(s || []);
 
+        if (supabase) {
+          const { data: studentData } = await supabase
+            .from('students')
+            .select('curriculum_name')
+            .eq('id', activeStudentId)
+            .maybeSingle();
+
+          if (studentData?.curriculum_name) {
+            setStudentCurriculum(studentData.curriculum_name);
+          }
+        }
       } catch (err) {
         console.error('Error loading student context:', err);
       }
@@ -190,8 +209,8 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // استخدام الموديل المستقر المعتمد لتفادي الشاشة السوداء
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        // استخدام الموديل المستقر والمعتمد لتفادي الأخطاء
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
