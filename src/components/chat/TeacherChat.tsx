@@ -1,24 +1,19 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Send, Mic, MicOff, Calendar, Sparkles, Paperclip, Play,
-  BookOpen, Target, Flame, Clock, Lightbulb,
-  ChevronRight, ChevronLeft, ChevronUp, ChevronDown, Brain, History,
-  X, PanelRightClose, PanelRightOpen, CheckCircle2, Circle,
-  Headphones, BookOpen as BookIcon, PenTool,
-  Lock as LockIcon, Volume2, Zap, Loader2, BookMarked, GraduationCap,
+  Send, Mic, Calendar, Sparkles, Paperclip,
+  ChevronUp, ChevronDown, Brain,
+  X, PanelRightClose, PanelRightOpen,
+  Volume2, BookMarked, GraduationCap, PenTool,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
 import { SUBJECT_META, ALL_SUBJECTS } from '@/data/subjects';
-import {
-  SMART_QUESTIONS, CURRICULUM_LESSONS,
-} from '@/data/mockData';
+import { SMART_QUESTIONS, CURRICULUM_LESSONS } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
   fetchStudentProgress, fetchStudentSchedule, fetchLessonMasteryBySubject,
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { supabase } from '@/lib/supabase';
 
 interface TeacherChatProps {
@@ -29,31 +24,31 @@ interface TeacherChatProps {
 const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
   math: {
     title: 'توضيح القاعدة الرياضية والخطوات',
-    steps: ['1. كتابة المعطيات وتحديد المطلوب في المعادلة', '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة', '3. الوصول للحل النهائي والتحقق من صحته']
+    steps: ['1. كتابة المعطيات وتحديد المطلوب', '2. تطبيق القانون المناسب خطوة بخطوة', '3. الوصول للحل النهائي والتحقق منه']
   },
   physics: {
     title: 'تحليل القوانين والقوى الفيزيائية',
-    steps: ['1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل والطاقة)', '2. تعويض الأرقام والوحدات القياسية', '3. استنتاج النتيجة الفيزيائية']
+    steps: ['1. تحديد القانون الأساسي', '2. تعويض الأرقام والوحدات', '3. استنتاج النتيجة الفيزيائية']
   },
   chemistry: {
     title: 'توضيح التفاعل والروابط الكيميائية',
-    steps: ['1. كتابة رموز العناصر المشاركة في التفاعل', '2. توزيع الإلكترونات وتحديد نوع الرابطة', '3. وزن المعادلة الكيميائية النهائية']
+    steps: ['1. كتابة رموز العناصر', '2. توزيع الإلكترونات وتحديد الرابطة', '3. وزن المعادلة النهائية']
   },
   biology: {
     title: 'مخطط العمليات الحيوية في الخلية',
-    steps: ['1. تحديد العضو أو الخلية المستهدفة', '2. توضيح مراحل الانقسام أو التفاعل الحيوي', '3. تلخيص الوظيفة النهائية']
+    steps: ['1. تحديد العضو المستهدف', '2. توضيح مراحل الانقسام أو التفاعل', '3. تلخيص الوظيفة النهائية']
   },
   history: {
     title: 'تسلسل الأحداث والتواريخ المهمة',
-    steps: ['1. تحديد الحدث الرئيسي والأطراف المشاركة', '2. توضيح الأسباب والنتائج المترتبة عليه', '3. ربط الحدث بالسياق التاريخي العام']
+    steps: ['1. تحديد الحدث والأطراف', '2. الأسباب والنتائج', '3. ربط الحدث بالسياق التاريخي']
   },
   english: {
     title: 'قاعدة الجرامر وبناء الجملة',
-    steps: ['1. كتابة التكوين الأساسي للقاعدة (Structure)', '2. إعطاء أمثلة توضيحية للإثبات والنفي', '3. تطبيق تدريب سريع للتأكيد']
+    steps: ['1. التكوين الأساسي للقاعدة (Structure)', '2. أمثلة توضيحية للإثبات والنفي', '3. تطبيق تدريب سريع']
   },
   geography: {
     title: 'تحليل الظواهر الجغرافية والموارد',
-    steps: ['1. تحديد الموقع أو الظاهرة على الخريطة', '2. دراسة العوامل المؤثرة (م المناخ، التضاريس)', '3. استنتاج التوزيع الاقتصادي أو السكاني']
+    steps: ['1. تحديد الموقع أو الظاهرة', '2. دراسة العوامل المؤثرة', '3. استنتاج التوزيع']
   },
 };
 
@@ -61,13 +56,13 @@ function detectSubject(text: string): Subject {
   if (!text) return 'math';
   const lower = text.toLowerCase();
   const keywords: Record<Subject, string[]> = {
-    math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'سؤال رياض', 'هندسة', 'مثلث', 'زاوية', 'sin', 'cos', 'math', 'equation', 'calculus'],
-    physics: ['فيزياء', 'نيوتن', 'حركة', 'قوة', 'دائرية', 'سرعة', 'شغل', 'طاقة', 'كهرباء', 'physics', 'force', 'motion', 'energy'],
-    chemistry: ['كيمياء', 'رابطة', 'ذرة', 'جدول دوري', 'تفاعل', 'أيون', 'تساهمي', 'chemistry', 'bond', 'atom', 'reaction'],
-    biology: ['أحياء', 'خلية', 'انقسام', 'كروموسوم', 'وراثة', 'جين', 'dna', 'biology', 'cell', 'mitosis', 'meiosis'],
-    history: ['تاريخ', 'ثورة', '1919', '1952', 'سعد زغلول', 'تصريح', 'history', 'revolution'],
-    english: ['english', 'grammar', 'tense', 'reading', 'writing', 'essay', 'إنجليزي', 'قواعد'],
-    geography: ['جغرافيا', 'خريطة', 'مصر', 'موارد', 'geography', 'map', 'resources'],
+    math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'هندسة', 'مثلث', 'math', 'equation'],
+    physics: ['فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل', 'طاقة', 'physics', 'force'],
+    chemistry: ['كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون', 'chemistry', 'atom'],
+    biology: ['أحياء', 'خلية', 'انقسام', 'وراثة', 'dna', 'biology', 'cell'],
+    history: ['تاريخ', 'ثورة', 'سعد زغلول', 'history', 'revolution'],
+    english: ['english', 'grammar', 'tense', 'writing', 'إنجليزي', 'قواعد'],
+    geography: ['جغرافيا', 'خريطة', 'مصر', 'geography', 'map'],
   };
   for (const subject of ALL_SUBJECTS) {
     if (keywords[subject]?.some((kw) => lower.includes(kw))) return subject;
@@ -90,13 +85,13 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const PROACTIVE_PROMPTS: Record<Subject, string[]> = {
-  math: ['عايز نراجع الجبر سوا؟', 'درس التفاضل لسه مخلصناش — يلا نكمّله؟', 'لحظة، حابة أسألك حاجة في حساب التكامل'],
-  physics: ['نيوتن لازم نثبّته كويس — نذاكره دلوقتي؟', 'الشغل والطاقة درس حلو جداً — جاهز؟', 'مستواك في الحركة حلو، ننتقل للكهرباء؟'],
-  chemistry: ['الجدول الدوري مهم جداً — نراجع بسرعة؟', 'الروابط الكيميائية فهمتها؟ نتأكد سوا', 'يلا نبدأ التفاعلات الكيميائية — درس شيق'],
-  biology: ['الخلية أساس كل حاجة — نراجعها؟', 'الانقسام المنصف محتاج تركيز — جاهز؟', 'الوراثة درس جميل جداً — نبدأه؟'],
-  history: ['ثورة 1919 حدث مهم — نذاكره؟', 'تصريح 28 فبراير — عايز أشرحهولك؟', 'سعد زغلول شخصية محورية — نراجع دوره؟'],
-  english: ['قواعد الـ tenses محتاجة مراجعة — يلا؟', 'عايز نتدرب على writing مع بعض؟', 'reading comprehension — نتمرن سوا؟'],
-  geography: ['موارد مصر الطبيعية — نذاكرها؟', 'خريطة مصر محتاجة تثبيت — جاهز؟', 'النشاط الاقتصادي — درس حلو نبدأه؟'],
+  math: ['عايز نراجع الجبر سوا؟', 'درس التفاضل لسه مخلصناش — يلا نكمّله؟'],
+  physics: ['نيوتن لازم نثبّته كويس — نذاكره دلوقتي؟', 'الشغل والطاقة درس حلو جداً — جاهز؟'],
+  chemistry: ['الجدول الدوري مهم جداً — نراجع بسرعة؟', 'الروابط الكيميائية فهمتها؟ نتأكد سوا'],
+  biology: ['الخلية أساس كل حاجة — نراجعها؟', 'الانقسام المنصف محتاج تركيز — جاهز؟'],
+  history: ['ثورة 1919 حدث مهم — نذاكره؟', 'تصريح 28 فبراير — عايز أشرحهولك؟'],
+  english: ['قواعد الـ tenses محتاجة مراجعة — يلا؟', 'عايز نتدرب على writing مع بعض؟'],
+  geography: ['موارد مصر الطبيعية — نذاكرها؟', 'خريطة مصر محتاجة تثبيت — جاهز؟'],
 };
 
 export function TeacherChat({ messages: initialMessages, studentName }: TeacherChatProps) {
@@ -153,24 +148,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       .catch(() => setDbLessons([]));
   }, [activeStudentId, activeSubject]);
 
-  useEffect(() => {
-    if (!showProactive || (messages && messages.length > 2)) return;
-    const timer = setTimeout(() => {
-      setShowProactive(false);
-      const prompts = PROACTIVE_PROMPTS[activeSubject] || PROACTIVE_PROMPTS.math;
-      const prompt = prompts[Math.floor(Math.random() * prompts.length)];
-      const proactiveMsg: ChatMessage = {
-        id: `p-${Date.now()}`,
-        role: 'ai',
-        text: prompt,
-        timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-        reaction: 'encourage',
-      };
-      setMessages((m) => [...m, proactiveMsg]);
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [showProactive, activeSubject, messages]);
-
   const currentActiveLesson = useMemo(() => {
     return dbLessons.find((l) => l.unlocked && !l.exam_passed) || dbLessons[0];
   }, [dbLessons]);
@@ -178,6 +155,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
   const ActiveIcon = activeMeta.icon;
 
+  // استدعاء جيميناي عبر Fetch الآمن (بدون مكتبة خارجية وبدون أي احتمالية לשاشة سوداء)
   const send = async (text?: string) => {
     const content = text || input;
     if (!content || !content.trim()) return;
@@ -200,33 +178,36 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
       if (apiKey) {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
         const activeSubMeta = SUBJECT_META[detectedSubject] || SUBJECT_META.math;
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
 
-        const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
-تتحدث الآن مع الطالب/الطالبة: ${studentName}.
-المادة الحالية: ${activeSubMeta.labelAr}.
-النظام الدراسي / المنهج: ${studentCurriculum}.
-الدرس الحالي: "${lessonTitle}".
-اتكلم حصرياً بالعامية المصرية الودودة، وبلاش إعطاء الإجابة الجاهزة مباشرة، اتبع الأسلوب السقراطي بالتوجيه خطوة بخطوة.`;
+        const systemPrompt = `أنت المدرس الخصوصي الذكي لمنصة "ذا بريمير" (The Primer). تحدث مع الطالب ${studentName} في مادة ${activeSubMeta.labelAr} بمنهج ${studentCurriculum} للدرس "${lessonTitle}". اتكلم بالعامية المصرية الودودة وبأسلوب سقراطي (اسأل أسئلة توجيهية ولا تعط الإجابة مباشرة).`;
 
-        const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
-        const response = await result.response;
-        responseText = response.text ? response.text() : '';
+        // استخدام الـ REST API المباشر لتجنب أخطاء حزم المكتبات و delayMs تماماً
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              { role: 'user', parts: [{ text: `${systemPrompt}\n\nسؤال الطالب: ${content}` }] }
+            ]
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        }
       }
-    } catch (apiError) {
-      console.warn('Gemini API call failed, using smart contextual fallback:', apiError);
+    } catch (e) {
+      console.warn('API error handled safely:', e);
     }
 
     setTyping(false);
     setDrawing(true);
 
-    // لو الـ API رجع فاضي أو حصل خطأ، نعمل رد ذكي وسياقي بدلاً من الثابت القديم
     if (!responseText.trim()) {
-      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr} بمنهج ${studentCurriculum}! فهمت سؤالك، بس فكر معايا كده: إيه أول قانون أو خطوة ممكن نكتبها عشان نولّد الحل سوا؟`;
+      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr} بمنهج ${studentCurriculum}! فكر معايا: إيه أول خطوة تحب نكتبها على السبورة عشان نحل بيها؟`;
     }
 
     const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
@@ -253,9 +234,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   const doneCount = dbSchedule.filter((s) => s.status === 'done').length;
   const totalCount = dbSchedule.length;
   const weekProgress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-
-  const currentLessons = CURRICULUM_LESSONS.find((l) => l.subject === activeSubject)?.lessons ?? [];
-  const subjectProgress = dbProgress.find((p) => p.subject === activeSubject);
   const voiceActive = voiceOn && !muted;
 
   return (
@@ -282,16 +260,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           </div>
           <div className="mr-auto flex items-center gap-2">
             <button
-              onClick={() => setVoiceOn(!voiceOn)}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
-                voiceOn ? 'bg-white text-black' : 'bg-neutral-800 text-neutral-500'
-              )}
-            >
-              {voiceOn ? <Volume2 size={14} /> : <MicOff size={14} />}
-              <span>{voiceOn ? 'صوت' : 'صامت'}</span>
-            </button>
-            <button
               onClick={() => setPanelOpen(!panelOpen)}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
@@ -311,16 +279,13 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   const meta = SUBJECT_META[subj] || SUBJECT_META.math;
                   const Icon = meta.icon;
                   const isActive = activeSubject === subj;
-                  const prog = dbProgress.find((p) => p.subject === subj);
                   return (
                     <button
                       key={subj}
                       onClick={() => setActiveSubject(subj)}
                       className={cn(
                         'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition shrink-0',
-                        isActive
-                          ? 'border-transparent text-white'
-                          : 'border-[#2a2a2a] text-neutral-500 hover:border-[#444] hover:text-neutral-300'
+                        isActive ? 'border-transparent text-white' : 'border-[#2a2a2a] text-neutral-500 hover:text-neutral-300'
                       )}
                       style={isActive ? { background: meta.accent + '20', border: `1px solid ${meta.accent}40` } : undefined}
                     >
@@ -330,43 +295,36 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                   );
                 })}
               </div>
-              <button
-                onClick={() => setSubjectBarOpen(false)}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:text-white hover:bg-neutral-800 transition"
-              >
+              <button onClick={() => setSubjectBarOpen(false)} className="text-neutral-500 hover:text-white">
                 <ChevronUp size={16} />
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setSubjectBarOpen(true)}
-              className="flex items-center gap-2 text-xs text-neutral-500 hover:text-neutral-300 transition"
-            >
+            <button onClick={() => setSubjectBarOpen(true)} className="flex items-center gap-2 text-xs text-neutral-500">
               <ActiveIcon size={14} style={{ color: activeMeta.accent }} />
               <span className="font-medium">{activeMeta.labelAr}</span>
-              <ChevronDown size={14} className="text-neutral-600" />
+              <ChevronDown size={14} />
             </button>
           )}
         </div>
 
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0">
           {messages && messages.map((msg) => (
-            <MessageBubble key={msg.id || Math.random()} message={msg} studentName={studentName} voiceActive={voiceActive} />
+            <MessageBubble key={msg.id || Math.random()} message={msg} />
           ))}
           {typing && (
             <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-xs font-bold text-white">P</div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-white font-bold">P</div>
               <div className="flex gap-1 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '150ms' }} />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-neutral-600">بجهّز الشرح...</span>
             </div>
           )}
           {drawing && (
             <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-xs font-bold text-white">P</div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-white font-bold">P</div>
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <PenTool size={14} className="text-emerald-400 animate-pulse" />
                 <span>جاري إعداد السبورة التفاعلية...</span>
@@ -375,14 +333,33 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           )}
         </div>
 
+        {messages.length <= 4 && (
+          <div className="border-t border-[#2a2a2a] px-4 py-3">
+            <p className="text-[10px] text-neutral-500 mb-2 flex items-center gap-1">
+              <Sparkles size={12} className="text-amber-400" /> أسئلة مقترحة
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {suggestedQuestions.map((q) => (
+                <button
+                  key={q.question}
+                  onClick={() => send(q.question)}
+                  className="rounded-lg border border-[#2a2a2a] bg-[#1c1c1c] px-3 py-1.5 text-xs text-neutral-300 hover:text-white"
+                >
+                  {q.question}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="border-t border-[#2a2a2a] p-3">
           <div className="flex items-center gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
-              placeholder={`اسأل في درس (${currentActiveLesson?.lesson_title || activeMeta.labelAr})...`}
-              className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444]"
+              placeholder="اسأل مدرّسك..."
+              className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
             <button
               onClick={() => send()}
@@ -406,7 +383,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <X size={16} />
             </button>
           </div>
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
+          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
             <p className="text-xs font-bold text-emerald-400">{studentCurriculum}</p>
           </div>
         </div>
@@ -415,7 +392,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   );
 }
 
-function MessageBubble({ message, studentName, voiceActive }: { message: ChatMessage; studentName: string; voiceActive: boolean }) {
+function MessageBubble({ message }: { message: ChatMessage }) {
   const isAI = message?.role === 'ai';
 
   return (
