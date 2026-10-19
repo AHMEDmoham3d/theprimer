@@ -19,21 +19,14 @@ import {
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-
-export const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+import { supabase } from '@/lib/supabase';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
   studentName: string;
 }
 
-// سبورة تفاعلية مخصصة لكل مادة عشان تظهر الحاجة الصح مش مثلث وخلاص
+// سبورة تفاعلية مخصصة لكل مادة
 const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
   math: {
     title: 'توضيح القاعدة الرياضية والخطوات',
@@ -134,25 +127,23 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     (async () => {
       try {
         const [p, s] = await Promise.all([
-          fetchStudentProgress(activeStudentId),
-          fetchStudentSchedule(activeStudentId),
+          fetchStudentProgress(activeStudentId).catch(() => []),
+          fetchStudentSchedule(activeStudentId).catch(() => []),
         ]);
         setDbProgress(p || []);
         setDbSchedule(s || []);
 
-        if (supabase) {
-          const { data: studentData } = await supabase
-            .from('students')
-            .select('curriculum_name')
-            .eq('id', activeStudentId)
-            .maybeSingle();
-
-          if (studentData?.curriculum_name) {
-            setStudentCurriculum(studentData.curriculum_name);
-          }
+        const { data: studentData, error: studentError } = await supabase
+          .from('students')
+          .select('curriculum_name')
+          .eq('id', activeStudentId)
+          .maybeSingle();
+        
+        if (!studentError && studentData?.curriculum_name) {
+          setStudentCurriculum(studentData.curriculum_name);
         }
       } catch (err) {
-        console.error('Error loading student context:', err);
+        console.warn('Database offline or restricted access, using default state.', err);
       }
     })();
   }, [activeStudentId]);
@@ -160,7 +151,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   useEffect(() => {
     fetchLessonMasteryBySubject(activeStudentId, activeSubject)
       .then((res) => setDbLessons(res || []))
-      .catch((err) => console.error('Error loading lessons:', err));
+      .catch(() => setDbLessons([]));
   }, [activeStudentId, activeSubject]);
 
   useEffect(() => {
@@ -209,8 +200,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // استخدام الموديل المستقر والمعتمد لتفادي الأخطاء
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
         const activeSubjectMeta = SUBJECT_META[detectedSubject];
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
@@ -259,10 +249,11 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       console.error('Gemini API Error details:', error);
       setTyping(false);
       setDrawing(false);
+      
       const fallbackMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'ai',
-        text: `يا ${studentName}، أنا معاك في درس (${currentActiveLesson?.lesson_title || 'المادة'}) بمنهج ${studentCurriculum}! فكر معايا، إيه أول خطوة نبدأ بيها؟`,
+        text: `يا ${studentName}، أنا معاك في مادة ${SUBJECT_META[detectedSubject]?.labelAr || 'الدراسة'} بمنهج ${studentCurriculum}. فهمت سؤالك، بس تعال نفكر سوا: إيه أول خطوة تحب نكتبها على السبورة عشان نحله خطوة بخطوة؟`,
         timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
         reaction: 'encourage',
       };
@@ -631,7 +622,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                     </div>
                   );
                 })}
-                {todaySlots.length === 0 && <p className="text-xs text-neutral-600 text-center py-2">جاري تحميل الجدول...</p>}
+                {todaySlots.length === 0 && <p className="text-xs text-neutral-600 text-center py-2">لا توجد مواعيد جدول لليوم</p>}
               </div>
             </div>
 
