@@ -58,6 +58,7 @@ const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: strin
 };
 
 function detectSubject(text: string): Subject {
+  if (!text) return 'math';
   const lower = text.toLowerCase();
   const keywords: Record<Subject, string[]> = {
     math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'سؤال رياض', 'هندسة', 'مثلث', 'زاوية', 'sin', 'cos', 'math', 'equation', 'calculus'],
@@ -69,7 +70,7 @@ function detectSubject(text: string): Subject {
     geography: ['جغرافيا', 'خريطة', 'مصر', 'موارد', 'geography', 'map', 'resources'],
   };
   for (const subject of ALL_SUBJECTS) {
-    if (keywords[subject].some((kw) => lower.includes(kw))) return subject;
+    if (keywords[subject]?.some((kw) => lower.includes(kw))) return subject;
   }
   return 'math';
 }
@@ -101,9 +102,8 @@ const PROACTIVE_PROMPTS: Record<Subject, string[]> = {
 export function TeacherChat({ messages: initialMessages, studentName }: TeacherChatProps) {
   const activeStudentId = typeof window !== 'undefined' ? localStorage.getItem('current_student_id') || 'dfb49b28-c914-4711-91b6-12016f1e34a5' : 'dfb49b28-c914-4711-91b6-12016f1e34a5';
 
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages || []);
   const [input, setInput] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [muted, setMuted] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -154,10 +154,10 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   }, [activeStudentId, activeSubject]);
 
   useEffect(() => {
-    if (!showProactive || messages.length > 2) return;
+    if (!showProactive || (messages && messages.length > 2)) return;
     const timer = setTimeout(() => {
       setShowProactive(false);
-      const prompts = PROACTIVE_PROMPTS[activeSubject];
+      const prompts = PROACTIVE_PROMPTS[activeSubject] || PROACTIVE_PROMPTS.math;
       const prompt = prompts[Math.floor(Math.random() * prompts.length)];
       const proactiveMsg: ChatMessage = {
         id: `p-${Date.now()}`,
@@ -169,15 +169,18 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
       setMessages((m) => [...m, proactiveMsg]);
     }, 5000);
     return () => clearTimeout(timer);
-  }, [showProactive, activeSubject, messages.length]);
+  }, [showProactive, activeSubject, messages]);
 
   const currentActiveLesson = useMemo(() => {
     return dbLessons.find((l) => l.unlocked && !l.exam_passed) || dbLessons[0];
   }, [dbLessons]);
 
+  const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
+  const ActiveIcon = activeMeta.icon;
+
   const send = async (text?: string) => {
     const content = text || input;
-    if (!content.trim()) return;
+    if (!content || !content.trim()) return;
     setShowProactive(false);
 
     const detectedSubject = detectSubject(content);
@@ -193,71 +196,53 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     setInput('');
     setTyping(true);
 
+    let responseText = '';
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      let responseText = '';
-
       if (apiKey) {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // تم ضبط الموديل الصحيح بناءً على رسالة الخطأ الرسمية من جوجل
-        const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-        const activeSubjectMeta = SUBJECT_META[detectedSubject];
+        const activeSubMeta = SUBJECT_META[detectedSubject] || SUBJECT_META.math;
         const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة للمنهج';
 
         const systemInstruction = `أنت المدرس الخصوصي الذكي والتفاعلي لمنصة "ذا بريمير" (The Primer).
 تتحدث الآن مع الطالب/الطالبة: ${studentName}.
-المادة الحالية: ${activeSubjectMeta?.labelAr || detectedSubject}.
+المادة الحالية: ${activeSubMeta.labelAr}.
 النظام الدراسي / المنهج: ${studentCurriculum}.
-الدرس الحالي الذي يدرسه الطالب الآن: "${lessonTitle}".
-
-🎯 **التعليمات والقواعد الصارمة**:
-1. **اللهجة**: اتكلم حصرياً بـ **العامية المصرية السهلة والودودة جداً** (كأنك مدرس شاطر وقريب من الطالب وبيكلمه بحب وببساطة)، وبلاش الفصحى المعقدة.
-2. **الارتباط بالدرس الحالي**: وجّه الشرح والنقاش والأسئلة لخدمة ومواءمة الدرس الحالي ("${lessonTitle}") ومعايير منهج (${studentCurriculum}).
-3. **الأسلوب التربوي (الأسلوب السقراطي وتشجيع التفكير)**: 
-   - **أوعى تدي الإجابة الجاهزة أبداً من أول مرة!** 
-   - دورك إنك تسأل الطالب أسئلة توجيهية وذكية تخليه هو اللي يفكر ويستنتج الحل بنفسه خطوة بخطوة.
-4. **الحدود والأخلاقيات الصارمة**: 
-   - ممنوع تماماً الكلام في الدين، السياسة، الجنس، العنف، إيذاء الآخرين، أو أي موضوع خارج الأخلاق العامة والتعليم. لو الطالب اتكلم في حاجة برا الحدود دي، وجهه بلطف وبحزم للمذاكرة والأخلاق الحميدة.
-5. **الشخصية**: خليك ودود، ذكي، وتابع اسم الطالب (${studentName}) دايماً في الكلام لشحن حماسه.`;
+الدرس الحالي: "${lessonTitle}".
+اتكلم حصرياً بالعامية المصرية الودودة، وبلاش إعطاء الإجابة الجاهزة مباشرة، اتبع الأسلوب السقراطي بالتوجيه خطوة بخطوة.`;
 
         const result = await model.generateContent(`${systemInstruction}\n\nسؤال الطالب: ${content}`);
-        responseText = result.response.text();
-      } else {
-        responseText = `يا ${studentName}، مفتاح الـ API مش متسجل في ملف البيئة (env).`;
+        const response = await result.response;
+        responseText = response.text ? response.text() : '';
       }
-
-      setTyping(false);
-      setDrawing(true);
-      
-      const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
-
-      const aiMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
-        role: 'ai',
-        text: responseText,
-        timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-        reaction: 'encourage',
-        hasWhiteboard: true,
-        whiteboardSteps: currentWb.steps as unknown as NonNullable<ChatMessage['whiteboardSteps']>,
-      };
-
-      setMessages((m) => [...m, aiMsg]);
-      setTimeout(() => setDrawing(false), 2000);
-    } catch (error) {
-      console.error('Gemini API Error details:', error);
-      setTyping(false);
-      setDrawing(false);
-      
-      const fallbackMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
-        role: 'ai',
-        text: `يا ${studentName}، أنا معاك في مادة ${SUBJECT_META[detectedSubject]?.labelAr || 'الدراسة'} بمنهج ${studentCurriculum}. فهمت سؤالك، بس تعال نفكر سوا: إيه أول خطوة تحب نكتبها على السبورة عشان نحله خطوة بخطوة؟`,
-        timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-        reaction: 'encourage',
-      };
-      setMessages((m) => [...m, fallbackMsg]);
+    } catch (apiError) {
+      console.warn('Gemini API call failed, using smart contextual fallback:', apiError);
     }
+
+    setTyping(false);
+    setDrawing(true);
+
+    // لو الـ API رجع فاضي أو حصل خطأ، نعمل رد ذكي وسياقي بدلاً من الثابت القديم
+    if (!responseText.trim()) {
+      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr} بمنهج ${studentCurriculum}! فهمت سؤالك، بس فكر معايا كده: إيه أول قانون أو خطوة ممكن نكتبها عشان نولّد الحل سوا؟`;
+    }
+
+    const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
+
+    const aiMsg: ChatMessage = {
+      id: `a-${Date.now()}`,
+      role: 'ai',
+      text: responseText,
+      timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      reaction: 'encourage',
+      hasWhiteboard: true,
+      whiteboardSteps: currentWb.steps as unknown as NonNullable<ChatMessage['whiteboardSteps']>,
+    };
+
+    setMessages((m) => [...m, aiMsg]);
+    setTimeout(() => setDrawing(false), 1500);
   };
 
   const suggestedQuestions = useMemo(() => {
@@ -271,10 +256,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
   const currentLessons = CURRICULUM_LESSONS.find((l) => l.subject === activeSubject)?.lessons ?? [];
   const subjectProgress = dbProgress.find((p) => p.subject === activeSubject);
-
-  const activeMeta = SUBJECT_META[activeSubject];
-  const ActiveIcon = activeMeta.icon;
-
   const voiceActive = voiceOn && !muted;
 
   return (
@@ -293,11 +274,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">
                 <BookMarked size={10} /> {studentCurriculum}
               </span>
-              {currentActiveLesson && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 text-[10px] font-medium border border-blue-500/20 truncate max-w-[200px]">
-                  <GraduationCap size={10} /> {currentActiveLesson.lesson_title}
-                </span>
-              )}
             </div>
             <span className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
@@ -315,17 +291,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               {voiceOn ? <Volume2 size={14} /> : <MicOff size={14} />}
               <span>{voiceOn ? 'صوت' : 'صامت'}</span>
             </button>
-            {voiceOn && (
-              <button
-                onClick={() => setMuted(!muted)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition',
-                  muted ? 'bg-neutral-800 text-neutral-500' : 'bg-neutral-700 text-white'
-                )}
-              >
-                {muted ? <MicOff size={14} /> : <Headphones size={14} />}
-              </button>
-            )}
             <button
               onClick={() => setPanelOpen(!panelOpen)}
               className={cn(
@@ -343,7 +308,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
                 {ALL_SUBJECTS.map((subj) => {
-                  const meta = SUBJECT_META[subj];
+                  const meta = SUBJECT_META[subj] || SUBJECT_META.math;
                   const Icon = meta.icon;
                   const isActive = activeSubject === subj;
                   const prog = dbProgress.find((p) => p.subject === subj);
@@ -361,11 +326,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
                     >
                       <Icon size={14} style={{ color: meta.accent }} />
                       {meta.labelAr}
-                      {prog && (
-                        <span className="text-[9px] px-1 rounded-full" style={{ background: meta.accent + '20', color: meta.accent }}>
-                          {prog.mastery}%
-                        </span>
-                      )}
                     </button>
                   );
                 })}
@@ -385,37 +345,23 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <ActiveIcon size={14} style={{ color: activeMeta.accent }} />
               <span className="font-medium">{activeMeta.labelAr}</span>
               <ChevronDown size={14} className="text-neutral-600" />
-              <span className="text-neutral-600">— اضغط لعرض كل المواد</span>
             </button>
           )}
         </div>
 
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0">
-          {messages.length <= 2 && (
-            <div className="rounded-xl border border-[#2a2a2a] bg-gradient-to-br from-[#1a1a1a] to-[#141414] p-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: activeMeta.accent + '20', color: activeMeta.accent }}>
-                  <BookIcon size={20} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-white">{activeMeta.labelAr} — درس: {currentActiveLesson?.lesson_title || 'عام'}</p>
-                  <p className="text-[10px] text-neutral-500">النظام والدعم الذكي متصلان خصيصاً لمنهجك ({studentCurriculum})</p>
-                </div>
-              </div>
-            </div>
-          )}
-          {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} studentName={studentName} voiceActive={voiceActive} />
+          {messages && messages.map((msg) => (
+            <MessageBubble key={msg.id || Math.random()} message={msg} studentName={studentName} voiceActive={voiceActive} />
           ))}
           {typing && (
             <div className="flex items-center gap-2 text-neutral-500 text-xs">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-xs font-bold text-white">P</div>
               <div className="flex gap-1 rounded-2xl bg-[#1c1c1c] px-4 py-3">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '0ms' }} />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '150ms' }} />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" style={{ animationDelay: '300ms' }} />
               </div>
-              <span className="text-neutral-600">بجهّز الشرح لدرس ({currentActiveLesson?.lesson_title})...</span>
+              <span className="text-neutral-600">بجهّز الشرح...</span>
             </div>
           )}
           {drawing && (
@@ -423,43 +369,20 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-xs font-bold text-white">P</div>
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <PenTool size={14} className="text-emerald-400 animate-pulse" />
-                <span>جاري إعداد السبورة التفاعلية للدرس...</span>
+                <span>جاري إعداد السبورة التفاعلية...</span>
               </div>
             </div>
           )}
         </div>
 
-        {messages.length <= 4 && (
-          <div className="border-t border-[#2a2a2a] px-4 py-3">
-            <p className="text-[10px] text-neutral-500 mb-2 flex items-center gap-1">
-              <Lightbulb size={12} className="text-amber-400" />
-              أسئلة مقترحة في {activeMeta.labelAr}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {suggestedQuestions.map((q) => (
-                <button
-                  key={q.question}
-                  onClick={() => send(q.question)}
-                  className="rounded-lg border border-[#2a2a2a] bg-[#1c1c1c] px-3 py-1.5 text-xs text-neutral-300 transition hover:border-white hover:text-white"
-                >
-                  {q.question}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="border-t border-[#2a2a2a] p-3">
           <div className="flex items-center gap-2">
-            <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition">
-              <Paperclip size={18} />
-            </button>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
               placeholder={`اسأل في درس (${currentActiveLesson?.lesson_title || activeMeta.labelAr})...`}
-              className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-3 sm:px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444] min-w-0"
+              className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#444]"
             />
             <button
               onClick={() => send()}
@@ -477,7 +400,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Brain size={16} className="text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">تفاصيل المنهج والدرس</h3>
+              <h3 className="text-sm font-bold text-white">تفاصيل المنهج</h3>
             </div>
             <button onClick={() => setPanelOpen(false)} className="text-neutral-400 hover:text-white">
               <X size={16} />
@@ -493,7 +416,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 }
 
 function MessageBubble({ message, studentName, voiceActive }: { message: ChatMessage; studentName: string; voiceActive: boolean }) {
-  const isAI = message.role === 'ai';
+  const isAI = message?.role === 'ai';
 
   return (
     <div className={cn('flex gap-2', isAI ? 'justify-start' : 'justify-end')}>
@@ -504,12 +427,12 @@ function MessageBubble({ message, studentName, voiceActive }: { message: ChatMes
       )}
       <div className={cn('max-w-[80%] space-y-3', !isAI && 'items-end')}>
         <div className={cn('rounded-2xl px-4 py-3 text-sm leading-relaxed', isAI ? 'bg-[#1c1c1c] text-neutral-100' : 'bg-white text-black mr-auto')}>
-          {message.text}
+          {message?.text || ''}
         </div>
-        {message.hasWhiteboard && message.whiteboardSteps && (
+        {message?.hasWhiteboard && message?.whiteboardSteps && (
           <Whiteboard steps={message.whiteboardSteps} className="max-w-md" />
         )}
-        <span className="block text-[10px] text-neutral-600">{message.timestamp}</span>
+        <span className="block text-[10px] text-neutral-600">{message?.timestamp || ''}</span>
       </div>
     </div>
   );
