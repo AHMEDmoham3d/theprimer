@@ -124,6 +124,7 @@ export interface BlockedUserRow {
 }
 
 function slugify(text: string): string {
+  if (!text) return '';
   return text
     .trim()
     .replace(/[^a-zA-Z0-9\s-]/g, '')
@@ -134,9 +135,13 @@ function slugify(text: string): string {
 }
 
 export async function fetchSchools(): Promise<SchoolRow[]> {
-  const { data, error } = await supabase.from('schools').select('*').order('join_date', { ascending: false });
-  if (error) { console.error('fetchSchools:', error); return []; }
-  return data as SchoolRow[];
+  try {
+    const { data, error } = await supabase.from('schools').select('*').order('join_date', { ascending: false });
+    if (error) { console.warn('fetchSchools warning:', error.message); return []; }
+    return (data || []) as SchoolRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function createSchool(input: {
@@ -147,24 +152,32 @@ export async function createSchool(input: {
   contract_status: 'active' | 'pending' | 'trial' | 'expired';
   referral_per_student: number;
 }): Promise<SchoolRow | null> {
-  const slug = slugify(input.name_en || input.name);
-  const { data, error } = await supabase.from('schools').insert({
-    name: input.name,
-    name_en: input.name_en,
-    slug,
-    location: input.location,
-    school_type: input.school_type,
-    contract_status: input.contract_status,
-    referral_per_student: input.referral_per_student,
-  }).select().single();
-  if (error) { console.error('createSchool:', error); return null; }
-  return data as SchoolRow;
+  try {
+    const slug = slugify(input.name_en || input.name);
+    const { data, error } = await supabase.from('schools').insert({
+      name: input.name,
+      name_en: input.name_en,
+      slug,
+      location: input.location,
+      school_type: input.school_type,
+      contract_status: input.contract_status,
+      referral_per_student: input.referral_per_student,
+    }).select().single();
+    if (error) { console.warn('createSchool warning:', error.message); return null; }
+    return data as SchoolRow;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchTeachers(): Promise<TeacherRow[]> {
-  const { data, error } = await supabase.from('teachers').select('*').order('name');
-  if (error) { console.error('fetchTeachers:', error); return []; }
-  return data as TeacherRow[];
+  try {
+    const { data, error } = await supabase.from('teachers').select('*').order('name');
+    if (error) { console.warn('fetchTeachers warning:', error.message); return []; }
+    return (data || []) as TeacherRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function createTeacher(input: {
@@ -175,24 +188,32 @@ export async function createTeacher(input: {
   phone: string;
   email: string;
 }): Promise<TeacherRow | null> {
-  const avatar = input.name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-  const { data, error } = await supabase.from('teachers').insert({
-    name: input.name,
-    school_id: input.school_id,
-    school_name: input.school_name,
-    subject: input.subject,
-    avatar,
-    phone: input.phone,
-    email: input.email,
-  }).select().single();
-  if (error) { console.error('createTeacher:', error); return null; }
-  return data as TeacherRow;
+  try {
+    const avatar = input.name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    const { data, error } = await supabase.from('teachers').insert({
+      name: input.name,
+      school_id: input.school_id,
+      school_name: input.school_name,
+      subject: input.subject,
+      avatar,
+      phone: input.phone,
+      email: input.email,
+    }).select().single();
+    if (error) { console.warn('createTeacher warning:', error.message); return null; }
+    return data as TeacherRow;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchStudents(): Promise<StudentRow[]> {
-  const { data, error } = await supabase.from('students').select('*').order('name');
-  if (error) { console.error('fetchStudents:', error); return []; }
-  return data as StudentRow[];
+  try {
+    const { data, error } = await supabase.from('students').select('*').order('name');
+    if (error) { console.warn('fetchStudents warning:', error.message); return []; }
+    return (data || []) as StudentRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function createStudent(input: {
@@ -208,79 +229,113 @@ export async function createStudent(input: {
   student_phone: string;
   student_email: string;
 }): Promise<StudentRow | null> {
-  const avatar = input.name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
-  const { data, error } = await supabase.from('students').insert({
-    name: input.name,
-    grade: input.grade,
-    school_id: input.school_id,
-    school_name: input.school_name,
-    avatar,
-    active_subject: 'math',
-    last_active: 'الآن',
-    subscription_status: 'trial',
-    parent_name: input.parent_name,
-    parent_phone: input.parent_phone,
-    parent_email: input.parent_email,
-    student_phone: input.student_phone,
-    student_email: input.student_email,
-    curriculum_id: input.curriculum_id,
-    curriculum_name: input.curriculum_name,
-  }).select().single();
-  if (error) { console.error('createStudent:', error); return null; }
-  return data as StudentRow;
+  try {
+    const avatar = input.name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    const { data, error } = await supabase.from('students').insert({
+      name: input.name,
+      grade: input.grade,
+      school_id: input.school_id,
+      school_name: input.school_name,
+      avatar,
+      active_subject: 'math',
+      last_active: 'الآن',
+      subscription_status: 'trial',
+      parent_name: input.parent_name,
+      parent_phone: input.parent_phone,
+      parent_email: input.parent_email,
+      student_phone: input.student_phone,
+      student_email: input.student_email,
+      curriculum_id: input.curriculum_id,
+      curriculum_name: input.curriculum_name,
+    }).select().single();
+    if (error) { console.warn('createStudent warning:', error.message); return null; }
+    return data as StudentRow;
+  } catch {
+    return null;
+  }
 }
 
-// ─── Curricula Management Functions ───
-
 export async function fetchCurricula(): Promise<CurriculumRow[]> {
-  const { data, error } = await supabase.from('curricula').select('*').order('name');
-  if (error) { console.error('fetchCurricula:', error); return []; }
-  return data as CurriculumRow[];
+  try {
+    const { data, error } = await supabase.from('curricula').select('*').order('name');
+    if (error) { console.warn('fetchCurricula warning:', error.message); return []; }
+    return (data || []) as CurriculumRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function updateStudentCurriculum(studentId: string, curriculumId: string, curriculumName: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('students')
-    .update({ curriculum_id: curriculumId, curriculum_name: curriculumName })
-    .eq('id', studentId);
-  if (error) { console.error('updateStudentCurriculum:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('students')
+      .update({ curriculum_id: curriculumId, curriculum_name: curriculumName })
+      .eq('id', studentId);
+    if (error) { console.warn('updateStudentCurriculum warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchCurriculumSubjects(curriculumId: string): Promise<CurriculumSubjectRow[]> {
-  const { data, error } = await supabase.from('curriculum_subjects').select('*').eq('curriculum_id', curriculumId).order('sort_order');
-  if (error) { console.error('fetchCurriculumSubjects:', error); return []; }
-  return data as CurriculumSubjectRow[];
+  try {
+    const { data, error } = await supabase.from('curriculum_subjects').select('*').eq('curriculum_id', curriculumId).order('sort_order');
+    if (error) { console.warn('fetchCurriculumSubjects warning:', error.message); return []; }
+    return (data || []) as CurriculumSubjectRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchUnits(subjectId: string): Promise<CurriculumUnitRow[]> {
-  const { data, error } = await supabase.from('curriculum_units').select('*').eq('subject_id', subjectId).order('sort_order');
-  if (error) { console.error('fetchUnits:', error); return []; }
-  return data as CurriculumUnitRow[];
+  try {
+    const { data, error } = await supabase.from('curriculum_units').select('*').eq('subject_id', subjectId).order('sort_order');
+    if (error) { console.warn('fetchUnits warning:', error.message); return []; }
+    return (data || []) as CurriculumUnitRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchLessons(unitId: string): Promise<CurriculumLessonRow[]> {
-  const { data, error } = await supabase.from('curriculum_lessons').select('*').eq('unit_id', unitId).order('sort_order');
-  if (error) { console.error('fetchLessons:', error); return []; }
-  return data as CurriculumLessonRow[];
+  try {
+    const { data, error } = await supabase.from('curriculum_lessons').select('*').eq('unit_id', unitId).order('sort_order');
+    if (error) { console.warn('fetchLessons warning:', error.message); return []; }
+    return (data || []) as CurriculumLessonRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchWhatsAppTemplates(): Promise<WhatsAppTemplateRow[]> {
-  const { data, error } = await supabase.from('whatsapp_templates').select('*').order('trigger_type');
-  if (error) { console.error('fetchWhatsAppTemplates:', error); return []; }
-  return data as WhatsAppTemplateRow[];
+  try {
+    const { data, error } = await supabase.from('whatsapp_templates').select('*').order('trigger_type');
+    if (error) { console.warn('fetchWhatsAppTemplates warning:', error.message); return []; }
+    return (data || []) as WhatsAppTemplateRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function updateWhatsAppTemplate(id: string, updates: Partial<WhatsAppTemplateRow>): Promise<boolean> {
-  const { error } = await supabase.from('whatsapp_templates').update(updates).eq('id', id);
-  if (error) { console.error('updateWhatsAppTemplate:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase.from('whatsapp_templates').update(updates).eq('id', id);
+    if (error) { console.warn('updateWhatsAppTemplate warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchWhatsAppMessages(): Promise<WhatsAppMessageRow[]> {
-  const { data, error } = await supabase.from('whatsapp_messages').select('*').order('created_at', { ascending: false }).limit(50);
-  if (error) { console.error('fetchWhatsAppMessages:', error); return []; }
-  return data as WhatsAppMessageRow[];
+  try {
+    const { data, error } = await supabase.from('whatsapp_messages').select('*').order('created_at', { ascending: false }).limit(50);
+    if (error) { console.warn('fetchWhatsAppMessages warning:', error.message); return []; }
+    return (data || []) as WhatsAppMessageRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function sendWhatsAppMessage(input: {
@@ -294,36 +349,52 @@ export async function sendWhatsAppMessage(input: {
   trigger_type: string;
   company_sending_number: string;
 }): Promise<boolean> {
-  const { error } = await supabase.from('whatsapp_messages').insert({
-    ...input,
-    status: 'sent',
-  });
-  if (error) { console.error('sendWhatsAppMessage:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase.from('whatsapp_messages').insert({
+      ...input,
+      status: 'sent',
+    });
+    if (error) { console.warn('sendWhatsAppMessage warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchBlockedUsers(): Promise<BlockedUserRow[]> {
-  const { data, error } = await supabase.from('blocked_users').select('*').order('blocked_at', { ascending: false });
-  if (error) { console.error('fetchBlockedUsers:', error); return []; }
-  return data as BlockedUserRow[];
+  try {
+    const { data, error } = await supabase.from('blocked_users').select('*').order('blocked_at', { ascending: false });
+    if (error) { console.warn('fetchBlockedUsers warning:', error.message); return []; }
+    return (data || []) as BlockedUserRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function blockUser(input: { email: string; name: string; role: string; reason: string }): Promise<boolean> {
-  const { error } = await supabase.from('blocked_users').insert({
-    email: input.email,
-    name: input.name,
-    role: input.role,
-    reason: input.reason,
-    blocked_by: 'admin',
-  });
-  if (error) { console.error('blockUser:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase.from('blocked_users').insert({
+      email: input.email,
+      name: input.name,
+      role: input.role,
+      reason: input.reason,
+      blocked_by: 'admin',
+    });
+    if (error) { console.warn('blockUser warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function unblockUser(id: string): Promise<boolean> {
-  const { error } = await supabase.from('blocked_users').delete().eq('id', id);
-  if (error) { console.error('unblockUser:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase.from('blocked_users').delete().eq('id', id);
+    if (error) { console.warn('unblockUser warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface StudentProgressRow {
@@ -341,42 +412,33 @@ export interface StudentProgressRow {
 }
 
 export async function fetchStudentProgress(studentId: string): Promise<StudentProgressRow[]> {
-  const { data, error } = await supabase
-    .from('student_progress')
-    .select('*')
-    .eq('student_id', studentId)
-    .order('subject');
-  
-  if (error || !data || data.length === 0) {
-    const defaultSubjects = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];
-    const initialRows = defaultSubjects.map((subject) => ({
-      student_id: studentId,
-      subject,
-      mastery: 0,
-      questions_answered: 0,
-      sessions_completed: 0,
-      strengths: ['أساسيات المنهج'],
-      weaknesses: ['جاري تحديد نقاط التركيز'],
-      recent_topics: ['مقدمة المنهج'],
-    }));
-
-    const { data: inserted } = await supabase
+  try {
+    const { data, error } = await supabase
       .from('student_progress')
-      .insert(initialRows)
-      .select('*');
-
-    return (inserted || []) as StudentProgressRow[];
+      .select('*')
+      .eq('student_id', studentId)
+      .order('subject');
+    
+    if (error || !data || data.length === 0) {
+      return [];
+    }
+    return data as StudentProgressRow[];
+  } catch {
+    return [];
   }
-  return data as StudentProgressRow[];
 }
 
 export async function updateStudentProgress(id: string, updates: Partial<StudentProgressRow>): Promise<boolean> {
-  const { error } = await supabase
-    .from('student_progress')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { console.error('updateStudentProgress:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('student_progress')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) { console.warn('updateStudentProgress warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface ScheduleSlotRow {
@@ -395,48 +457,48 @@ export interface ScheduleSlotRow {
 }
 
 export async function fetchStudentSchedule(studentId: string): Promise<ScheduleSlotRow[]> {
-  const { data, error } = await supabase
-    .from('study_schedule')
-    .select('*')
-    .eq('student_id', studentId)
-    .order('day_of_week')
-    .order('scheduled_time');
-
-  if (error || !data || data.length === 0) {
-    const defaultSchedule = [
-      { student_id: studentId, day_of_week: 1, day_name: 'السبت', day_name_en: 'Saturday', scheduled_time: '16:00:00', subject: 'math', topic: 'مقدمة في الجبر والتحليل', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
-      { student_id: studentId, day_of_week: 2, day_name: 'الأحد', day_name_en: 'Sunday', scheduled_time: '15:00:00', subject: 'physics', topic: 'قوانين الحركة الأساسية', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
-      { student_id: studentId, day_of_week: 3, day_name: 'الإثنين', day_name_en: 'Monday', scheduled_time: '16:00:00', subject: 'chemistry', topic: 'الجدول الدوري والروابط', duration_minutes: 25, slot_type: 'review', status: 'upcoming' },
-      { student_id: studentId, day_of_week: 4, day_name: 'الثلاثاء', day_name_en: 'Tuesday', scheduled_time: '14:00:00', subject: 'biology', topic: 'تركيب الخلية الحية', duration_minutes: 25, slot_type: 'new', status: 'upcoming' },
-    ];
-
-    const { data: inserted } = await supabase
+  try {
+    const { data, error } = await supabase
       .from('study_schedule')
-      .insert(defaultSchedule)
-      .select('*');
+      .select('*')
+      .eq('student_id', studentId)
+      .order('day_of_week')
+      .order('scheduled_time');
 
-    return (inserted || []) as ScheduleSlotRow[];
+    if (error || !data || data.length === 0) {
+      return [];
+    }
+    return data as ScheduleSlotRow[];
+  } catch {
+    return [];
   }
-  return data as ScheduleSlotRow[];
 }
 
 export async function updateScheduleSlotStatus(id: string, status: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('study_schedule')
-    .update({ status })
-    .eq('id', id);
-  if (error) { console.error('updateScheduleSlotStatus:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('study_schedule')
+      .update({ status })
+      .eq('id', id);
+    if (error) { console.warn('updateScheduleSlotStatus warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function fetchStudentById(id: string): Promise<StudentRow | null> {
-  const { data, error } = await supabase
-    .from('students')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-  if (error) { console.error('fetchStudentById:', error); return null; }
-  return data as StudentRow;
+  try {
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) { console.warn('fetchStudentById warning:', error.message); return null; }
+    return data as StudentRow;
+  } catch {
+    return null;
+  }
 }
 
 export interface LessonMasteryRow {
@@ -455,75 +517,83 @@ export interface LessonMasteryRow {
 }
 
 export async function fetchLessonMastery(studentId: string): Promise<LessonMasteryRow[]> {
-  const { data, error } = await supabase
-    .from('lesson_mastery')
-    .select('*')
-    .eq('student_id', studentId)
-    .order('subject')
-    .order('lesson_order');
-
-  if (error || !data || data.length === 0) {
-    const defaultLessons = [
-      { student_id: studentId, subject: 'math', lesson_id: 'm1', lesson_title: 'المعادلات التفاضلية الأساسية', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
-      { student_id: studentId, subject: 'math', lesson_id: 'm2', lesson_title: 'التكامل المتقدم', lesson_order: 2, mastery: 0, unlocked: false, exam_score: null, exam_passed: false },
-      { student_id: studentId, subject: 'physics', lesson_id: 'p1', lesson_title: 'الحركة الدائرية والقوة المركزية', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
-      { student_id: studentId, subject: 'chemistry', lesson_id: 'c1', lesson_title: 'الروابط الكيميائية وتدرج الخواص', lesson_order: 1, mastery: 0, unlocked: true, exam_score: null, exam_passed: false },
-    ];
-
-    const { data: inserted } = await supabase
+  try {
+    const { data, error } = await supabase
       .from('lesson_mastery')
-      .insert(defaultLessons)
-      .select('*');
+      .select('*')
+      .eq('student_id', studentId)
+      .order('subject')
+      .order('lesson_order');
 
-    return (inserted || []) as LessonMasteryRow[];
+    if (error || !data || data.length === 0) {
+      return [];
+    }
+    return data as LessonMasteryRow[];
+  } catch {
+    return [];
   }
-  return data as LessonMasteryRow[];
 }
 
 export async function fetchLessonMasteryBySubject(studentId: string, subject: string): Promise<LessonMasteryRow[]> {
-  const { data, error } = await supabase
-    .from('lesson_mastery')
-    .select('*')
-    .eq('student_id', studentId)
-    .eq('subject', subject)
-    .order('lesson_order');
-  if (error) { console.error('fetchLessonMasteryBySubject:', error); return []; }
-  return data as LessonMasteryRow[];
+  try {
+    const { data, error } = await supabase
+      .from('lesson_mastery')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('subject', subject)
+      .order('lesson_order');
+    if (error) { console.warn('fetchLessonMasteryBySubject warning:', error.message); return []; }
+    return (data || []) as LessonMasteryRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function updateLessonMastery(id: string, updates: Partial<LessonMasteryRow>): Promise<boolean> {
-  const { error } = await supabase
-    .from('lesson_mastery')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { console.error('updateLessonMastery:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('lesson_mastery')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) { console.warn('updateLessonMastery warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function unlockNextLesson(studentId: string, subject: string, currentOrder: number): Promise<boolean> {
-  const { error } = await supabase
-    .from('lesson_mastery')
-    .update({ unlocked: true, updated_at: new Date().toISOString() })
-    .eq('student_id', studentId)
-    .eq('subject', subject)
-    .eq('lesson_order', currentOrder + 1);
-  if (error) { console.error('unlockNextLesson:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('lesson_mastery')
+      .update({ unlocked: true, updated_at: new Date().toISOString() })
+      .eq('student_id', studentId)
+      .eq('subject', subject)
+      .eq('lesson_order', currentOrder + 1);
+    if (error) { console.warn('unlockNextLesson warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const WHATSAPP_MIN_INTERVAL_HOURS = 6;
 
 export async function canSendWhatsApp(studentId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('students')
-    .select('last_whatsapp_sent')
-    .eq('id', studentId)
-    .maybeSingle();
-  if (error || !data || !data.last_whatsapp_sent) return true;
-  const lastSent = new Date(data.last_whatsapp_sent).getTime();
-  const now = Date.now();
-  const hoursSince = (now - lastSent) / (1000 * 60 * 60);
-  return hoursSince >= WHATSAPP_MIN_INTERVAL_HOURS;
+  try {
+    const { data, error } = await supabase
+      .from('students')
+      .select('last_whatsapp_sent')
+      .eq('id', studentId)
+      .maybeSingle();
+    if (error || !data || !data.last_whatsapp_sent) return true;
+    const lastSent = new Date(data.last_whatsapp_sent).getTime();
+    const now = Date.now();
+    const hoursSince = (now - lastSent) / (1000 * 60 * 60);
+    return hoursSince >= WHATSAPP_MIN_INTERVAL_HOURS;
+  } catch {
+    return true;
+  }
 }
 
 export async function sendWhatsAppMessagePaced(input: {
@@ -537,23 +607,25 @@ export async function sendWhatsAppMessagePaced(input: {
   trigger_type: string;
   company_sending_number: string;
 }): Promise<{ sent: boolean; reason: string }> {
-  if (input.student_id) {
-    const allowed = await canSendWhatsApp(input.student_id);
-    if (!allowed) {
-      return { sent: false, reason: 'pacing_throttled' };
+  try {
+    if (input.student_id) {
+      const allowed = await canSendWhatsApp(input.student_id);
+      if (!allowed) {
+        return { sent: false, reason: 'pacing_throttled' };
+      }
     }
+    const ok = await sendWhatsAppMessage(input);
+    if (ok && input.student_id) {
+      await supabase
+        .from('students')
+        .update({ last_whatsapp_sent: new Date().toISOString() })
+        .eq('id', input.student_id);
+    }
+    return { sent: ok, reason: ok ? 'sent' : 'insert_failed' };
+  } catch {
+    return { sent: false, reason: 'error' };
   }
-  const ok = await sendWhatsAppMessage(input);
-  if (ok && input.student_id) {
-    await supabase
-      .from('students')
-      .update({ last_whatsapp_sent: new Date().toISOString() })
-      .eq('id', input.student_id);
-  }
-  return { sent: ok, reason: ok ? 'sent' : 'insert_failed' };
 }
-
-// ─── Summer Course Recommendations ───
 
 export interface SummerCourseRecommendation {
   id: string;
@@ -578,36 +650,46 @@ export interface SummerCourseRecommendation {
 }
 
 export async function fetchAllRecommendations(): Promise<SummerCourseRecommendation[]> {
-  const { data, error } = await supabase
-    .from('summer_course_recommendations')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) { console.error('fetchAllRecommendations:', error); return []; }
-  return data as SummerCourseRecommendation[];
+  try {
+    const { data, error } = await supabase
+      .from('summer_course_recommendations')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('fetchAllRecommendations warning:', error.message); return []; }
+    return (data || []) as SummerCourseRecommendation[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchStudentRecommendations(studentId: string): Promise<SummerCourseRecommendation[]> {
-  const { data, error } = await supabase
-    .from('summer_course_recommendations')
-    .select('*')
-    .eq('student_id', studentId)
-    .order('created_at', { ascending: false });
-  if (error) { console.error('fetchStudentRecommendations:', error); return []; }
-  return data as SummerCourseRecommendation[];
+  try {
+    const { data, error } = await supabase
+      .from('summer_course_recommendations')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('fetchStudentRecommendations warning:', error.message); return []; }
+    return (data || []) as SummerCourseRecommendation[];
+  } catch {
+    return [];
+  }
 }
 
 export async function updateRecommendationStatus(id: string, status: 'confirmed' | 'hidden'): Promise<boolean> {
-  const updates: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
-  if (status === 'confirmed') updates.confirmed_at = new Date().toISOString();
-  const { error } = await supabase
-    .from('summer_course_recommendations')
-    .update(updates)
-    .eq('id', id);
-  if (error) { console.error('updateRecommendationStatus:', error); return false; }
-  return true;
+  try {
+    const updates: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+    if (status === 'confirmed') updates.confirmed_at = new Date().toISOString();
+    const { error } = await supabase
+      .from('summer_course_recommendations')
+      .update(updates)
+      .eq('id', id);
+    if (error) { console.warn('updateRecommendationStatus warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
-
-// ─── Subscription Settings ───
 
 export interface SubscriptionSettingsRow {
   id: string;
@@ -618,109 +700,139 @@ export interface SubscriptionSettingsRow {
 }
 
 export async function fetchSubscriptionSettings(): Promise<SubscriptionSettingsRow | null> {
-  const { data, error } = await supabase
-    .from('subscription_settings')
-    .select('*')
-    .limit(1)
-    .maybeSingle();
-  if (error) { console.error('fetchSubscriptionSettings:', error); return null; }
-  return data as SubscriptionSettingsRow;
+  try {
+    const { data, error } = await supabase
+      .from('subscription_settings')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    if (error) { console.warn('fetchSubscriptionSettings warning:', error.message); return null; }
+    return data as SubscriptionSettingsRow;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateSubscriptionSettings(id: string, updates: Partial<SubscriptionSettingsRow>): Promise<boolean> {
-  const { error } = await supabase
-    .from('subscription_settings')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { console.error('updateSubscriptionSettings:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('subscription_settings')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) { console.warn('updateSubscriptionSettings warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function renewStudentSubscription(studentId: string, days: number = 30): Promise<boolean> {
-  const newEndDate = new Date();
-  newEndDate.setDate(newEndDate.getDate() + days);
-  const { error } = await supabase
-    .from('students')
-    .update({
-      subscription_status: 'active',
-      subscription_end_date: newEndDate.toISOString().split('T')[0],
-    })
-    .eq('id', studentId);
-  if (error) { console.error('renewStudentSubscription:', error); return false; }
-  return true;
+  try {
+    const newEndDate = new Date();
+    newEndDate.setDate(newEndDate.getDate() + days);
+    const { error } = await supabase
+      .from('students')
+      .update({
+        subscription_status: 'active',
+        subscription_end_date: newEndDate.toISOString().split('T')[0],
+      })
+      .eq('id', studentId);
+    if (error) { console.warn('renewStudentSubscription warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-// ─── Trial Management ───
-
 export async function grantTrial(studentId: string, days: number, subjects: string[]): Promise<boolean> {
-  const newEndDate = new Date();
-  newEndDate.setDate(newEndDate.getDate() + days);
-  const { error } = await supabase
-    .from('students')
-    .update({
-      subscription_status: 'trial',
-      subscription_end_date: newEndDate.toISOString().split('T')[0],
-      trial_subjects: subjects,
-    })
-    .eq('id', studentId);
-  if (error) { console.error('grantTrial:', error); return false; }
-  return true;
+  try {
+    const newEndDate = new Date();
+    newEndDate.setDate(newEndDate.getDate() + days);
+    const { error } = await supabase
+      .from('students')
+      .update({
+        subscription_status: 'trial',
+        subscription_end_date: newEndDate.toISOString().split('T')[0],
+        trial_subjects: subjects,
+      })
+      .eq('id', studentId);
+    if (error) { console.warn('grantTrial warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function extendTrial(studentId: string, additionalDays: number): Promise<boolean> {
-  const { data: student } = await supabase
-    .from('students')
-    .select('subscription_end_date')
-    .eq('id', studentId)
-    .maybeSingle();
-  if (!student) return false;
-  const currentEnd = student.subscription_end_date ? new Date(student.subscription_end_date) : new Date();
-  const base = currentEnd > new Date() ? currentEnd : new Date();
-  base.setDate(base.getDate() + additionalDays);
-  const { error } = await supabase
-    .from('students')
-    .update({
-      subscription_status: 'trial',
-      subscription_end_date: base.toISOString().split('T')[0],
-    })
-    .eq('id', studentId);
-  if (error) { console.error('extendTrial:', error); return false; }
-  return true;
+  try {
+    const { data: student } = await supabase
+      .from('students')
+      .select('subscription_end_date')
+      .eq('id', studentId)
+      .maybeSingle();
+    if (!student) return false;
+    const currentEnd = student.subscription_end_date ? new Date(student.subscription_end_date) : new Date();
+    const base = currentEnd > new Date() ? currentEnd : new Date();
+    base.setDate(base.getDate() + additionalDays);
+    const { error } = await supabase
+      .from('students')
+      .update({
+        subscription_status: 'trial',
+        subscription_end_date: base.toISOString().split('T')[0],
+      })
+      .eq('id', studentId);
+    if (error) { console.warn('extendTrial warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function revokeTrial(studentId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('students')
-    .update({
-      subscription_status: 'expired',
-      subscription_end_date: new Date().toISOString().split('T')[0],
-    })
-    .eq('id', studentId);
-  if (error) { console.error('revokeTrial:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('students')
+      .update({
+        subscription_status: 'expired',
+        subscription_end_date: new Date().toISOString().split('T')[0],
+      })
+      .eq('id', studentId);
+    if (error) { console.warn('revokeTrial warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function updateTrialSubjects(studentId: string, subjects: string[]): Promise<boolean> {
-  const { error } = await supabase
-    .from('students')
-    .update({ trial_subjects: subjects })
-    .eq('id', studentId);
-  if (error) { console.error('updateTrialSubjects:', error); return false; }
-  return true;
+  try {
+    const { error } = await supabase
+      .from('students')
+      .update({ trial_subjects: subjects })
+      .eq('id', studentId);
+    if (error) { console.warn('updateTrialSubjects warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function activateStudent(studentId: string): Promise<boolean> {
-  const newEndDate = new Date();
-  newEndDate.setDate(newEndDate.getDate() + 365);
-  const { error } = await supabase
-    .from('students')
-    .update({
-      subscription_status: 'active',
-      subscription_end_date: newEndDate.toISOString().split('T')[0],
-    })
-    .eq('id', studentId);
-  if (error) { console.error('activateStudent:', error); return false; }
-  return true;
+  try {
+    const newEndDate = new Date();
+    newEndDate.setDate(newEndDate.getDate() + 365);
+    const { error } = await supabase
+      .from('students')
+      .update({
+        subscription_status: 'active',
+        subscription_end_date: newEndDate.toISOString().split('T')[0],
+      })
+      .eq('id', studentId);
+    if (error) { console.warn('activateStudent warning:', error.message); return false; }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function isTrialExpired(student: { subscription_status: string; subscription_end_date: string | null }): boolean {
@@ -739,8 +851,6 @@ export function getTrialDaysLeft(student: { subscription_end_date: string | null
   const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   return Math.max(0, diff);
 }
-
-// ─── API Usage Tracking ───
 
 export interface ApiUsageLogRow {
   id: string;
@@ -775,65 +885,77 @@ export async function logApiUsage(input: {
   model?: string;
   content_preview?: string;
 }): Promise<void> {
-  const { error } = await supabase.from('api_usage_logs').insert({
-    student_id: input.student_id,
-    student_name: input.student_name,
-    interaction_type: input.interaction_type,
-    subject: input.subject,
-    tokens_used: input.tokens_used,
-    cost_usd: input.cost_usd,
-    model: input.model ?? 'gpt-4o-mini',
-    content_preview: input.content_preview ?? null,
-  });
-  if (error) { console.error('logApiUsage:', error); return; }
-
-  const today = new Date().toISOString().split('T')[0];
-  const { data: existing } = await supabase
-    .from('api_usage_daily')
-    .select('*')
-    .eq('student_id', input.student_id ?? '')
-    .eq('date', today)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase
-      .from('api_usage_daily')
-      .update({
-        total_tokens: (existing as ApiUsageDailyRow).total_tokens + input.tokens_used,
-        total_cost_usd: Number((existing as ApiUsageDailyRow).total_cost_usd) + input.cost_usd,
-        request_count: (existing as ApiUsageDailyRow).request_count + 1,
-      })
-      .eq('id', (existing as ApiUsageDailyRow).id);
-  } else {
-    await supabase.from('api_usage_daily').insert({
+  try {
+    const { error } = await supabase.from('api_usage_logs').insert({
       student_id: input.student_id,
       student_name: input.student_name,
-      date: today,
-      total_tokens: input.tokens_used,
-      total_cost_usd: input.cost_usd,
-      request_count: 1,
+      interaction_type: input.interaction_type,
+      subject: input.subject,
+      tokens_used: input.tokens_used,
+      cost_usd: input.cost_usd,
+      model: input.model ?? 'gpt-4o-mini',
+      content_preview: input.content_preview ?? null,
     });
+    if (error) { console.warn('logApiUsage warning:', error.message); return; }
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existing } = await supabase
+      .from('api_usage_daily')
+      .select('*')
+      .eq('student_id', input.student_id ?? '')
+      .eq('date', today)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from('api_usage_daily')
+        .update({
+          total_tokens: (existing as ApiUsageDailyRow).total_tokens + input.tokens_used,
+          total_cost_usd: Number((existing as ApiUsageDailyRow).total_cost_usd) + input.cost_usd,
+          request_count: (existing as ApiUsageDailyRow).request_count + 1,
+        })
+        .eq('id', (existing as ApiUsageDailyRow).id);
+    } else {
+      await supabase.from('api_usage_daily').insert({
+        student_id: input.student_id,
+        student_name: input.student_name,
+        date: today,
+        total_tokens: input.tokens_used,
+        total_cost_usd: input.cost_usd,
+        request_count: 1,
+      });
+    }
+  } catch {
+    // suppress
   }
 }
 
 export async function fetchApiUsageDaily(): Promise<ApiUsageDailyRow[]> {
-  const { data, error } = await supabase
-    .from('api_usage_daily')
-    .select('*')
-    .order('date', { ascending: false })
-    .limit(30);
-  if (error) { console.error('fetchApiUsageDaily:', error); return []; }
-  return data as ApiUsageDailyRow[];
+  try {
+    const { data, error } = await supabase
+      .from('api_usage_daily')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(30);
+    if (error) { console.warn('fetchApiUsageDaily warning:', error.message); return []; }
+    return (data || []) as ApiUsageDailyRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchApiUsageLogs(limit: number = 50): Promise<ApiUsageLogRow[]> {
-  const { data, error } = await supabase
-    .from('api_usage_logs')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) { console.error('fetchApiUsageLogs:', error); return []; }
-  return data as ApiUsageLogRow[];
+  try {
+    const { data, error } = await supabase
+      .from('api_usage_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) { console.warn('fetchApiUsageLogs warning:', error.message); return []; }
+    return (data || []) as ApiUsageLogRow[];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchApiUsageSummary(): Promise<{
@@ -845,66 +967,70 @@ export async function fetchApiUsageSummary(): Promise<{
   byType: Array<{ interaction_type: string; total_cost: number; count: number }>;
   dailyTrend: Array<{ date: string; cost: number; tokens: number }>;
 }> {
-  const { data: daily } = await supabase
-    .from('api_usage_daily')
-    .select('*')
-    .order('date', { ascending: false })
-    .limit(30);
-  if (!daily) return { totalCost: 0, totalTokens: 0, totalRequests: 0, topConsumers: [], bySubject: [], byType: [], dailyTrend: [] };
+  try {
+    const { data: daily } = await supabase
+      .from('api_usage_daily')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(30);
+    if (!daily) return { totalCost: 0, totalTokens: 0, totalRequests: 0, topConsumers: [], bySubject: [], byType: [], dailyTrend: [] };
 
-  const rows = daily as ApiUsageDailyRow[];
-  const totalCost = rows.reduce((s, r) => s + Number(r.total_cost_usd), 0);
-  const totalTokens = rows.reduce((s, r) => s + r.total_tokens, 0);
-  const totalRequests = rows.reduce((s, r) => s + r.request_count, 0);
+    const rows = daily as ApiUsageDailyRow[];
+    const totalCost = rows.reduce((s, r) => s + Number(r.total_cost_usd), 0);
+    const totalTokens = rows.reduce((s, r) => s + r.total_tokens, 0);
+    const totalRequests = rows.reduce((s, r) => s + r.request_count, 0);
 
-  const consumerMap = new Map<string, { student_name: string; total_cost: number; total_tokens: number; request_count: number }>();
-  for (const r of rows) {
-    const key = r.student_id ?? 'unknown';
-    const existing = consumerMap.get(key);
-    if (existing) {
-      existing.total_cost += Number(r.total_cost_usd);
-      existing.total_tokens += r.total_tokens;
-      existing.request_count += r.request_count;
-    } else {
-      consumerMap.set(key, {
-        student_name: r.student_name,
-        total_cost: Number(r.total_cost_usd),
-        total_tokens: r.total_tokens,
-        request_count: r.request_count,
-      });
+    const consumerMap = new Map<string, { student_name: string; total_cost: number; total_tokens: number; request_count: number }>();
+    for (const r of rows) {
+      const key = r.student_id ?? 'unknown';
+      const existing = consumerMap.get(key);
+      if (existing) {
+        existing.total_cost += Number(r.total_cost_usd);
+        existing.total_tokens += r.total_tokens;
+        existing.request_count += r.request_count;
+      } else {
+        consumerMap.set(key, {
+          student_name: r.student_name,
+          total_cost: Number(r.total_cost_usd),
+          total_tokens: r.total_tokens,
+          request_count: r.request_count,
+        });
+      }
     }
+    const topConsumers = Array.from(consumerMap.values()).sort((a, b) => b.total_cost - a.total_cost).slice(0, 10);
+
+    const { data: logs } = await supabase
+      .from('api_usage_logs')
+      .select('subject, interaction_type, cost_usd, tokens_used')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    const logRows = (logs ?? []) as Array<{ subject: string | null; interaction_type: string; cost_usd: number; tokens_used: number }>;
+
+    const subjectMap = new Map<string, { total_cost: number; total_tokens: number }>();
+    for (const l of logRows) {
+      const key = l.subject ?? 'general';
+      const ex = subjectMap.get(key);
+      if (ex) { ex.total_cost += Number(l.cost_usd); ex.total_tokens += l.tokens_used; }
+      else subjectMap.set(key, { total_cost: Number(l.cost_usd), total_tokens: l.tokens_used });
+    }
+    const bySubject = Array.from(subjectMap.entries()).map(([subject, v]) => ({ subject, ...v })).sort((a, b) => b.total_cost - a.total_cost);
+
+    const typeMap = new Map<string, { total_cost: number; count: number }>();
+    for (const l of logRows) {
+      const ex = typeMap.get(l.interaction_type);
+      if (ex) { ex.total_cost += Number(l.cost_usd); ex.count += 1; }
+      else typeMap.set(l.interaction_type, { total_cost: Number(l.cost_usd), count: 1 });
+    }
+    const byType = Array.from(typeMap.entries()).map(([interaction_type, v]) => ({ interaction_type, ...v })).sort((a, b) => b.count - a.count);
+
+    const dailyTrend = rows.slice().reverse().map((r) => ({
+      date: r.date,
+      cost: Number(r.total_cost_usd),
+      tokens: r.total_tokens,
+    }));
+
+    return { totalCost, totalTokens, totalRequests, topConsumers, bySubject, byType, dailyTrend };
+  } catch {
+    return { totalCost: 0, totalTokens: 0, totalRequests: 0, topConsumers: [], bySubject: [], byType: [], dailyTrend: [] };
   }
-  const topConsumers = Array.from(consumerMap.values()).sort((a, b) => b.total_cost - a.total_cost).slice(0, 10);
-
-  const { data: logs } = await supabase
-    .from('api_usage_logs')
-    .select('subject, interaction_type, cost_usd, tokens_used')
-    .order('created_at', { ascending: false })
-    .limit(200);
-  const logRows = (logs ?? []) as Array<{ subject: string | null; interaction_type: string; cost_usd: number; tokens_used: number }>;
-
-  const subjectMap = new Map<string, { total_cost: number; total_tokens: number }>();
-  for (const l of logRows) {
-    const key = l.subject ?? 'general';
-    const ex = subjectMap.get(key);
-    if (ex) { ex.total_cost += Number(l.cost_usd); ex.total_tokens += l.tokens_used; }
-    else subjectMap.set(key, { total_cost: Number(l.cost_usd), total_tokens: l.tokens_used });
-  }
-  const bySubject = Array.from(subjectMap.entries()).map(([subject, v]) => ({ subject, ...v })).sort((a, b) => b.total_cost - a.total_cost);
-
-  const typeMap = new Map<string, { total_cost: number; count: number }>();
-  for (const l of logRows) {
-    const ex = typeMap.get(l.interaction_type);
-    if (ex) { ex.total_cost += Number(l.cost_usd); ex.count += 1; }
-    else typeMap.set(l.interaction_type, { total_cost: Number(l.cost_usd), count: 1 });
-  }
-  const byType = Array.from(typeMap.entries()).map(([interaction_type, v]) => ({ interaction_type, ...v })).sort((a, b) => b.count - a.count);
-
-  const dailyTrend = rows.slice().reverse().map((r) => ({
-    date: r.date,
-    cost: Number(r.total_cost_usd),
-    tokens: r.total_tokens,
-  }));
-
-  return { totalCost, totalTokens, totalRequests, topConsumers, bySubject, byType, dailyTrend };
 }
