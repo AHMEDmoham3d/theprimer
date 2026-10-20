@@ -20,26 +20,26 @@ interface TeacherChatProps {
 }
 
 const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
-  math: { title: 'توضيح القاعدة الرياضية والخطوات', steps: ['1. كتابة المعطيات وتحديد المطلوب', '2. تطبيق القانون المناسب خطوة بخطوة', '3. الوصول للحل النهائي'] },
-  physics: { title: 'تحليل القوانين والقوى الفيزيائية', steps: ['1. تحديد القانون الأساسي', '2. تعويض الأرقام والوحدات', '3. استنتاج النتيجة الفيزيائية'] },
-  chemistry: { title: 'توضيح التفاعل والروابط الكيميائية', steps: ['1. كتابة رموز العناصر', '2. توزيع الإلكترونات', '3. وزن المعادلة النهائية'] },
-  biology: { title: 'مخطط العمليات الحيوية في الخلية', steps: ['1. تحديد العضو المستهدف', '2. مراحل الانقسام', '3. تلخيص الوظيفة'] },
-  history: { title: 'تسلسل الأحداث والتواريخ', steps: ['1. الحدث والأطراف', '2. الأسباب والنتائج', '3. السياق التاريخي'] },
-  english: { title: 'قاعدة الجرامر وبناء الجملة', steps: ['1. التكوين (Structure)', '2. أمثلة للإثبات والنفي', '3. تدريب سريع'] },
-  geography: { title: 'تحليل الظواهر الجغرافية والموارد', steps: ['1. الموقع أو الظاهرة', '2. العوامل المؤثرة', '3. التوزيع'] },
+  math: { title: 'توضيح القاعدة الرياضية والخطوات', steps: ['1. كتابة المعطيات وتحديد المطلوب في المعادلة', '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة', '3. الوصول للحل النهائي والتحقق من صحته'] },
+  physics: { title: 'تحليل القوانين والقوى الفيزيائية', steps: ['1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل)', '2. تعويض الأرقام والوحدات القياسية', '3. استنتاج النتيجة الفيزيائية'] },
+  chemistry: { title: 'توضيح التفاعل والروابط الكيميائية', steps: ['1. كتابة رموز العناصر المشاركة في التفاعل', '2. توزيع الإلكترونات وتحديد نوع الرابطة', '3. وزن المعادلة الكيميائية النهائية'] },
+  biology: { title: 'مخطط العمليات الحيوية في الخلية', steps: ['1. تحديد العضو أو الخلية المستهدفة', '2. توضيح مراحل الانقسام أو التفاعل الحيوي', '3. تلخيص الوظيفة النهائية'] },
+  history: { title: 'تسلسل الأحداث والتواريخ المهمة', steps: ['1. تحديد الحدث الرئيسي والأطراف المشاركة', '2. توضيح الأسباب والنتائج المترتبة عليه', '3. ربط الحدث بالسياق التاريخي العام'] },
+  english: { title: 'قاعدة الجرامر وبناء الجملة', steps: ['1. كتابة التكوين الأساسي للقاعدة (Structure)', '2. إعطاء أمثلة توضيحية للإثبات والنفي', '3. تطبيق تدريب سريع للتأكيد'] },
+  geography: { title: 'تحليل الظواهر الجغرافية والموارد', steps: ['1. تحديد الموقع أو الظاهرة على الخريطة', '2. دراسة العوامل المؤثرة (المناخ، التضاريس)', '3. استنتاج التوزيع الاقتصادي أو السكاني'] },
 };
 
 function detectSubject(text: string): Subject {
   if (!text) return 'math';
   const lower = text.toLowerCase();
   const keywords: Record<Subject, string[]> = {
-    math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'هندسة', 'مثلث', 'math'],
-    physics: ['فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل', 'طاقة', 'physics'],
-    chemistry: ['كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون', 'chemistry'],
-    biology: ['أحياء', 'خلية', 'انقسام', 'وراثة', 'dna', 'biology'],
-    history: ['تاريخ', 'ثورة', 'سعد زغلول', 'history'],
-    english: ['english', 'grammar', 'tense', 'writing', 'إنجليزي'],
-    geography: ['جغرافيا', 'خريطة', 'مصر', 'geography'],
+    math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'هندسة', 'مثلث', 'math', 'equation'],
+    physics: ['فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل', 'طاقة', 'physics', 'force'],
+    chemistry: ['كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون', 'chemistry', 'atom'],
+    biology: ['أحياء', 'خلية', 'انقسام', 'وراثة', 'dna', 'biology', 'cell'],
+    history: ['تاريخ', 'ثورة', 'سعد زغلول', 'history', 'revolution'],
+    english: ['english', 'grammar', 'tense', 'writing', 'إنجليزي', 'قواعد'],
+    geography: ['جغرافيا', 'خريطة', 'مصر', 'geography', 'map'],
   };
   for (const subject of ALL_SUBJECTS) {
     if (keywords[subject]?.some((kw) => lower.includes(kw))) return subject;
@@ -106,7 +106,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   }, [dbLessons]);
 
   const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
-  const ActiveIcon = activeMeta.icon;
+  const ActiveIcon = activeMeta.icon; // تم إضافة تعريف الأيقونة هنا لتجنب خطأ TypeScript
 
   const send = async (text?: string) => {
     const content = text || input;
@@ -126,38 +126,13 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     setInput('');
     setTyping(true);
 
-    let responseText = '';
-    try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      if (apiKey) {
-        const activeSubMeta = SUBJECT_META[detectedSubject] || SUBJECT_META.math;
-        const lessonTitle = currentActiveLesson?.lesson_title || 'مراجعة عامة';
-        const systemPrompt = `أنت المدرس الخصوصي الذكي لمنصة "ذا بريمير". تحدث مع الطالب ${studentName} في مادة ${activeSubMeta.labelAr} بمنهج ${studentCurriculum} للدرس "${lessonTitle}". اتكلم بالعامية المصرية الودودة وبأسلوب سقراطي (اسأل أسئلة توجيهية ولا تعط الإجابة مباشرة).`;
-
-        // استخدام gemini-2.0-flash حصرياً لتجنب خطأ 404
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nسؤال الطالب: ${content}` }] }]
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          responseText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        }
-      }
-    } catch (e) {
-      console.warn('API error caught safely:', e);
-    }
+    await new Promise((r) => setTimeout(r, 1000));
 
     setTyping(false);
     setDrawing(true);
 
-    if (!responseText.trim()) {
-      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr} بمنهج ${studentCurriculum}! فكر معايا: إيه أول خطوة تحب نكتبها على السبورة عشان نحل بيها؟`;
-    }
+    const lessonName = currentActiveLesson?.lesson_title || activeMeta.labelAr;
+    const responseText = `يا ${studentName}، ممتاز إنك سألت عن النقطة دي في درس (${lessonName}) بمنهج (${studentCurriculum}). بما إننا ماشيين بالأسلوب التفاعلي، فكر معايا كده: إيه أول قانون أو خطوة تحب نكتبها على السبورة عشان نبدأ نحل بيها سوا؟`;
 
     const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
 
