@@ -6,13 +6,14 @@ import {
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
 import { SUBJECT_META, ALL_SUBJECTS } from '@/data/subjects';
-import { SMART_QUESTIONS, CURRICULUM_LESSONS } from '@/data/mockData';
+import { SMART_QUESTIONS } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
   fetchStudentProgress, fetchStudentSchedule, fetchLessonMasteryBySubject,
   type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
 } from '@/lib/db';
 import { supabase } from '@/lib/supabase';
+import { askAITutor } from '@/lib/ai';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
@@ -63,7 +64,6 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   const [dbSchedule, setDbSchedule] = useState<ScheduleSlotRow[]>([]);
   const [dbLessons, setDbLessons] = useState<LessonMasteryRow[]>([]);
   const [studentCurriculum, setStudentCurriculum] = useState<string>('المنهج العام (المصري)');
-  const [showProactive, setShowProactive] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,12 +106,11 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
   }, [dbLessons]);
 
   const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
-  const ActiveIcon = activeMeta.icon; // تم إضافة تعريف الأيقونة هنا لتجنب خطأ TypeScript
+  const ActiveIcon = activeMeta.icon;
 
   const send = async (text?: string) => {
     const content = text || input;
     if (!content || !content.trim()) return;
-    setShowProactive(false);
 
     const detectedSubject = detectSubject(content);
     setActiveSubject(detectedSubject);
@@ -126,13 +125,21 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
     setInput('');
     setTyping(true);
 
-    await new Promise((r) => setTimeout(r, 1000));
+    let responseText = '';
+    try {
+      // استدعاء الذكاء الاصطناعي الحقيقي عبر دالة askAITutor
+      responseText = await askAITutor(content, {
+        name: studentName,
+        grade: currentActiveLesson?.lesson_title || 'الثانوي',
+        weakTopics: dbProgress.map((p) => p.subject),
+      });
+    } catch (e) {
+      console.warn('AI call error:', e);
+      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! قول لي إيه أكتر نقطة حابب نوضحها على السبورة؟`;
+    }
 
     setTyping(false);
     setDrawing(true);
-
-    const lessonName = currentActiveLesson?.lesson_title || activeMeta.labelAr;
-    const responseText = `يا ${studentName}، ممتاز إنك سألت عن النقطة دي في درس (${lessonName}) بمنهج (${studentCurriculum}). بما إننا ماشيين بالأسلوب التفاعلي، فكر معايا كده: إيه أول قانون أو خطوة تحب نكتبها على السبورة عشان نبدأ نحل بيها سوا؟`;
 
     const currentWb = DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] || DYNAMIC_SUBJECT_WHITEBOARDS.math;
 
