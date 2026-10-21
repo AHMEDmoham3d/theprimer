@@ -4,34 +4,46 @@ import type { StepAnimation, ShapeInstruction } from '@/types';
 import { cn } from '@/lib/utils';
 
 interface WhiteboardProps {
-  steps: StepAnimation[];
+  steps?: StepAnimation[] | Array<{ text?: string; delayMs?: number; label?: string; narration?: string; shapes?: ShapeInstruction[] }>;
   autoPlay?: boolean;
   className?: string;
 }
 
-export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardProps) {
+export function Whiteboard({ steps = [], autoPlay = false, className }: WhiteboardProps) {
+  const safeSteps = Array.isArray(steps) && steps.length > 0 ? steps : [
+    {
+      label: 'مقدمة الحل',
+      narration: 'مرحباً بك، دعنا نبدأ تحليل هذه المسألة خطوة بخطوة.',
+      durationMs: 3000,
+      shapes: [
+        { kind: 'text', x1: 50, y1: 50, color: '#ffffff', text: 'بداية الشرح التفاعلي', delayMs: 0 }
+      ]
+    }
+  ];
+
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [showNarration, setShowNarration] = useState(true);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (isPlaying && currentStep < steps.length - 1) {
+    if (isPlaying && currentStep < safeSteps.length - 1) {
+      const currentDuration = (safeSteps[currentStep] as any)?.durationMs ?? 3000;
       timeoutRef.current = setTimeout(() => {
         setCurrentStep((s) => s + 1);
-      }, steps[currentStep]?.durationMs ?? 3000);
-    } else if (isPlaying && currentStep >= steps.length - 1) {
+      }, currentDuration);
+    } else if (isPlaying && currentStep >= safeSteps.length - 1) {
       setIsPlaying(false);
     }
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [isPlaying, currentStep, steps]);
+  }, [isPlaying, currentStep, safeSteps]);
 
-  const allShapes = steps.slice(0, currentStep + 1).flatMap((step) => step.shapes);
+  const allShapes = safeSteps.slice(0, currentStep + 1).flatMap((step: any) => step?.shapes || []);
 
   const play = () => {
-    if (currentStep >= steps.length - 1) {
+    if (currentStep >= safeSteps.length - 1) {
       setCurrentStep(0);
       setIsPlaying(true);
     } else {
@@ -41,7 +53,7 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
   const pause = () => setIsPlaying(false);
   const next = () => {
     setIsPlaying(false);
-    setCurrentStep((s) => Math.min(s + 1, steps.length - 1));
+    setCurrentStep((s) => Math.min(s + 1, safeSteps.length - 1));
   };
   const prev = () => {
     setIsPlaying(false);
@@ -52,12 +64,13 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
     setCurrentStep(0);
   };
 
+  const currentStepData = safeSteps[currentStep] as any;
+
   return (
     <div className={cn('flex flex-col rounded-2xl border border-[#2a2a2a] bg-[#141414] overflow-hidden', className)}>
       {/* Canvas */}
       <div className="relative aspect-[16/10] w-full bg-[#0f0f0f]">
         <svg viewBox="0 0 500 320" className="h-full w-full" preserveAspectRatio="xMidYMid meet">
-          {/* Grid */}
           <defs>
             <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
               <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#1a1a1a" strokeWidth="0.5" />
@@ -65,14 +78,14 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
           </defs>
           <rect width="500" height="320" fill="url(#grid)" />
 
-          {allShapes.map((shape, i) => (
+          {allShapes.map((shape: ShapeInstruction, i: number) => (
             <ShapeRenderer key={`${currentStep}-${i}`} shape={shape} index={i} />
           ))}
         </svg>
 
         {/* Step indicator */}
         <div className="absolute top-3 left-3 flex gap-1.5">
-          {steps.map((_, i) => (
+          {safeSteps.map((_, i) => (
             <div
               key={i}
               className={cn(
@@ -84,16 +97,18 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
         </div>
 
         {/* Step label */}
-        <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
-          {steps[currentStep]?.label}
-        </div>
+        {currentStepData?.label && (
+          <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+            {currentStepData.label}
+          </div>
+        )}
       </div>
 
       {/* Narration */}
-      {showNarration && steps[currentStep]?.narration && (
+      {showNarration && currentStepData?.narration && (
         <div className="flex items-start gap-2 border-t border-[#2a2a2a] px-4 py-3 bg-[#161616]">
           <Volume2 size={16} className="mt-0.5 shrink-0 text-neutral-400" />
-          <p className="text-sm text-neutral-200 leading-relaxed">{steps[currentStep].narration}</p>
+          <p className="text-sm text-neutral-200 leading-relaxed">{currentStepData.narration}</p>
         </div>
       )}
 
@@ -129,13 +144,13 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
         )}
         <button
           onClick={next}
-          disabled={currentStep >= steps.length - 1}
+          disabled={currentStep >= safeSteps.length - 1}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:text-white hover:bg-neutral-800 disabled:opacity-30"
         >
           <SkipForward size={16} />
         </button>
         <div className="mr-auto text-xs text-neutral-500">
-          {currentStep + 1} / {steps.length}
+          {currentStep + 1} / {safeSteps.length}
         </div>
         <button
           onClick={() => setShowNarration(!showNarration)}
@@ -151,15 +166,17 @@ export function Whiteboard({ steps, autoPlay = false, className }: WhiteboardPro
   );
 }
 
-function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: number }) {
-  const delay = (shape.delayMs ?? 0) / 1000;
+export function ShapeRenderer({ shape }: { shape?: ShapeInstruction; index?: number }) {
+  if (!shape) return null;
+  const delay = ((shape as any)?.delayMs ?? 0) / 1000;
+  const color = shape.color || '#3b82f6';
 
   switch (shape.kind) {
     case 'line':
       return (
         <line
-          x1={shape.x1} y1={shape.y1} x2={shape.x2} y2={shape.y2}
-          stroke={shape.color}
+          x1={shape.x1 ?? 0} y1={shape.y1 ?? 0} x2={shape.x2 ?? 0} y2={shape.y2 ?? 0}
+          stroke={color}
           strokeWidth={3}
           strokeLinecap="round"
           className="animate-draw"
@@ -169,12 +186,12 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'rect':
       return (
         <rect
-          x={shape.x1} y={shape.y1}
-          width={(shape.x2 ?? 0) - (shape.x1 ?? 0)}
-          height={(shape.y2 ?? 0) - (shape.y1 ?? 0)}
-          fill={shape.color}
+          x={shape.x1 ?? 0} y={shape.y1 ?? 0}
+          width={Math.abs((shape.x2 ?? 0) - (shape.x1 ?? 0))}
+          height={Math.abs((shape.y2 ?? 0) - (shape.y1 ?? 0))}
+          fill={color}
           fillOpacity={0.2}
-          stroke={shape.color}
+          stroke={color}
           strokeWidth={2}
           rx={6}
           className="animate-appear-scale"
@@ -184,10 +201,10 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'circle':
       return (
         <circle
-          cx={shape.x1} cy={shape.y1} r={shape.radius}
-          fill={shape.color}
+          cx={shape.x1 ?? 0} cy={shape.y1 ?? 0} r={shape.radius ?? 10}
+          fill={color}
           fillOpacity={0.15}
-          stroke={shape.color}
+          stroke={color}
           strokeWidth={2.5}
           className="animate-appear-scale"
           style={{ animationDelay: `${delay}s`, transformOrigin: 'center' }}
@@ -196,9 +213,9 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'arc':
       return (
         <path
-          d={`M ${shape.x1} ${shape.y1} A ${shape.radius} ${shape.radius} 0 0 0 ${(shape.x1 ?? 0) + (shape.radius ?? 0)} ${(shape.y1 ?? 0) + 10}`}
+          d={`M ${shape.x1 ?? 0} ${shape.y1 ?? 0} A ${shape.radius ?? 10} ${shape.radius ?? 10} 0 0 0 ${(shape.x1 ?? 0) + (shape.radius ?? 10)} ${(shape.y1 ?? 0) + 10}`}
           fill="none"
-          stroke={shape.color}
+          stroke={color}
           strokeWidth={2.5}
           className="animate-draw"
           style={{ animationDelay: `${delay}s` }}
@@ -207,15 +224,15 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'text':
       return (
         <text
-          x={shape.x1} y={shape.y1}
-          fill={shape.color}
+          x={shape.x1 ?? 0} y={shape.y1 ?? 0}
+          fill={color}
           fontSize={shape.fontSize ?? 16}
           fontFamily="Cairo, sans-serif"
           fontWeight="600"
           className="animate-fade-in"
           style={{ animationDelay: `${delay}s` }}
         >
-          {shape.text}
+          {shape.text || ''}
         </text>
       );
     case 'triangle':
@@ -224,9 +241,9 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
       return (
         <polygon
           points={pts}
-          fill={shape.color}
+          fill={color}
           fillOpacity={0.1}
-          stroke={shape.color}
+          stroke={color}
           strokeWidth={2.5}
           className="animate-appear-scale"
           style={{ animationDelay: `${delay}s`, transformOrigin: 'center' }}
@@ -235,8 +252,8 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'arrow':
       return (
         <g className="animate-fade-in" style={{ animationDelay: `${delay}s` }}>
-          <line x1={shape.x1} y1={shape.y1} x2={shape.x2} y2={shape.y2} stroke={shape.color} strokeWidth={2.5} strokeLinecap="round" />
-          <circle cx={shape.x2} cy={shape.y2} r={4} fill={shape.color} />
+          <line x1={shape.x1 ?? 0} y1={shape.y1 ?? 0} x2={shape.x2 ?? 0} y2={shape.y2 ?? 0} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+          <circle cx={shape.x2 ?? 0} cy={shape.y2 ?? 0} r={4} fill={color} />
         </g>
       );
     case 'highlight':
@@ -246,7 +263,7 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
           y={Math.min(shape.y1 ?? 0, shape.y2 ?? 0) - 4}
           width={Math.abs((shape.x2 ?? 0) - (shape.x1 ?? 0)) + 8}
           height={Math.abs((shape.y2 ?? 0) - (shape.y1 ?? 0)) + 8}
-          fill={shape.color}
+          fill={color}
           fillOpacity={0.12}
           rx={4}
           className="animate-fade-in"
@@ -256,8 +273,8 @@ function ShapeRenderer({ shape, index }: { shape: ShapeInstruction; index: numbe
     case 'timeline-marker':
       return (
         <g className="animate-appear-scale" style={{ animationDelay: `${delay}s`, transformOrigin: 'center' }}>
-          <circle cx={shape.x1} cy={shape.y1} r={8} fill={shape.color} />
-          <circle cx={shape.x1} cy={shape.y1} r={12} fill={shape.color} fillOpacity={0.2} />
+          <circle cx={shape.x1 ?? 0} cy={shape.y1 ?? 0} r={8} fill={color} />
+          <circle cx={shape.x1 ?? 0} cy={shape.y1 ?? 0} r={12} fill={color} fillOpacity={0.2} />
         </g>
       );
     default:
