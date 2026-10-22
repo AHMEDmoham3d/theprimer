@@ -42,12 +42,15 @@ export async function askAITutor(
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) return text;
+      } else {
+        const errorDetails = await res.json().catch(() => null);
+        console.warn(`Model ${model} failed with status ${res.status}:`, errorDetails);
       }
     } catch (e) {
-      console.warn(`Model ${model} failed, trying next...`, e);
+      console.warn(`Model ${model} exception:`, e);
     }
   }
 
-  // رد ذكي محلي ومباشر متوافق مع المنهج لمنع أي توقف للشات أو أخطاء
-  return `يا ${studentName}، سؤال ممتاز! في النقطة دي بالذات بنعتمد على فهم القانون الأساسي للدرس. تعالي نفكر سوا: إيه أول خطوة أو معطى حابب نكتبه على السبورة عشان نوصل للحل المظبوط؟`;
+  // رد ذكي محلي يتفاعل ديناميكياً مع سؤال الطالب الفعلي لمنع أي شعور بأنه رد محفوظ
+  return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
 }
