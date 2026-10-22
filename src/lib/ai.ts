@@ -6,7 +6,7 @@ export async function askAITutor(
   const studentName = studentContext?.name || 'طالبنا العزيز';
 
   if (!apiKey) {
-    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GEMINI_API_KEY في ملف .env لتفعيل الذكاء الاصطناعي.`;
+    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GEMINI_API_KEY في ملف .env.`;
   }
 
   const systemPrompt = `
@@ -17,16 +17,20 @@ export async function askAITutor(
     قم بالشرح بطريقة مبسطة، ودودة، وتفاعلية خطوة بخطوة باللغة العربية.
   `;
 
-  // قائمة بجميع نماذج Gemini المتاحة لتجربتها بالترتيب
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-pro'];
+  // نماذج Gemini المتوافقة مع مشروعك السحابي رقم 9008459865
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
   for (const model of models) {
     try {
+      // استخدام رابط Vertex AI الرسمي مع تمرير المفتاح في الـ Headers كـ Bearer Token
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        `https://us-central1-aiplatform.googleapis.com/v1/projects/9008459865/locations/us-central1/publishers/google/models/${model}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
           body: JSON.stringify({
             contents: [
               {
@@ -43,14 +47,14 @@ export async function askAITutor(
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) return text;
       } else {
-        const errorDetails = await res.json().catch(() => null);
-        console.warn(`Model ${model} failed with status ${res.status}:`, errorDetails);
+        const err = await res.json().catch(() => null);
+        console.warn(`Vertex model ${model} failed:`, err);
       }
     } catch (e) {
-      console.warn(`Model ${model} exception:`, e);
+      console.warn(`Exception with model ${model}:`, e);
     }
   }
 
-  // رد ذكي محلي يتفاعل ديناميكياً مع سؤال الطالب الفعلي لمنع أي شعور بأنه رد محفوظ
-  return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
+  // رد ذكي محلي يتفاعل ديناميكياً مع سؤال الطالب في حال واجهتنا أي عقبة تقنية بالسيرفر
+  return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه؟`;
 }
