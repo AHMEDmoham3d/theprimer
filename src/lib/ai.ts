@@ -19,7 +19,7 @@ export async function askAITutor(
         'Authorization': `Bearer ${apiKey.trim()}`
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
+        model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
@@ -32,11 +32,14 @@ export async function askAITutor(
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       if (text) return text;
+    } else {
+      const err = await res.json().catch(() => null);
+      console.error("Groq Response Error:", err);
     }
   } catch (e) {
     console.error("AI Tutor Error:", e);
   }
 
-  // رد تفاعلي ذكي يضمن استمرار المحادثة والتعليم بسلاسة تامة
+  // رد تفاعلي ذكي يضمن استمرار المحادثة والتعليم بسلاسة تامة في حال أي ظرف طارئ
   return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
 }
