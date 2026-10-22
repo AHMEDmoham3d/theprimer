@@ -11,40 +11,34 @@ export async function askAITutor(
 
   const systemPrompt = `أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري. اسم الطالب: ${studentName}. الصف الدراسي: ${studentContext?.grade || 'الثانوي'}. اشرح بطريقة مبسطة وتفاعلية باللغة العربية.`;
 
-  // قائمة بأكثر نماذج Groq استقراراً بالترتيب
-  const models = ['llama-3.1-8b-instant', 'llama3-8b-8192', 'mixtral-8x7b-32768'];
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7
+      })
+    });
 
-  for (const model of models) {
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey.trim()}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.7
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.choices?.[0]?.message?.content;
-        if (text) return text;
-      } else {
-        const err = await res.json().catch(() => null);
-        console.warn(`Groq model ${model} failed with status ${res.status}:`, err);
-      }
-    } catch (e) {
-      console.error(`Fetch exception for ${model}:`, e);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) return text;
+    } else {
+      const errData = await res.json().catch(() => null);
+      console.error("Groq Exact Error:", errData);
     }
+  } catch (e) {
+    console.error("AI Tutor Error:", e);
   }
 
-  // رد محلي ذكي لتجنب السكتة أو الشاشة البيضاء في أي وضع طارئ
   return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
 }

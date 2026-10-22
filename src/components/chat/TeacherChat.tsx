@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send, Brain, X, PanelRightClose, PanelRightOpen,
-  Volume2, BookMarked, ChevronUp, ChevronDown, PenTool, Sparkles,
+  BookMarked, ChevronUp, ChevronDown, PenTool, Sparkles,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
@@ -127,7 +127,7 @@ export function TeacherChat({ messages: initialMessages, studentName }: TeacherC
 
     let responseText = '';
     try {
-      // استدعاء الذكاء الاصطناعي الحقيقي عبر دالة askAITutor
+      // استدعاء الذكاء الاصطناعي الحقيقي عبر Groq ودالة askAITutor المحدثة
       responseText = await askAITutor(content, {
         name: studentName,
         grade: currentActiveLesson?.lesson_title || 'الثانوي',
