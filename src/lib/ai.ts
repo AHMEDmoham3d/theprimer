@@ -6,10 +6,10 @@ export async function askAITutor(
   const studentName = studentContext?.name || 'طالبنا العزيز';
 
   if (!apiKey) {
-    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env لتفعيل الذكاء الاصطناعي.`;
+    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env.`;
   }
 
-  const contextText = `أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري. اسم الطالب: ${studentName}. الصف: ${studentContext?.grade || 'الثانوي'}. اشرح ببساطة باللغة العربية.`;
+  const systemPrompt = `أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري. اسم الطالب: ${studentName}. الصف الدراسي: ${studentContext?.grade || 'الثانوي'}. اشرح بطريقة مبسطة وتفاعلية باللغة العربية.`;
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -19,12 +19,10 @@ export async function askAITutor(
         'Authorization': `Bearer ${apiKey.trim()}`
       },
       body: JSON.stringify({
-        model: 'llama3-70b-8192',
+        model: 'llama-3.3-70b-versatile',
         messages: [
-          { 
-            role: 'user', 
-            content: `${contextText}\n\nسؤال الطالب: ${prompt}` 
-          }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
         ],
         temperature: 0.7
       })
@@ -36,12 +34,11 @@ export async function askAITutor(
       if (text) return text;
     } else {
       const errData = await res.json().catch(() => null);
-      console.error("Groq Detailed Error:", errData?.error?.message || errData);
+      console.error("Groq Error:", errData);
     }
   } catch (e) {
     console.error("AI Tutor Error:", e);
   }
 
-  // رد تفاعلي ذكي يضمن استمرار المحادثة والتعليم بسلاسة تامة
   return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
 }
