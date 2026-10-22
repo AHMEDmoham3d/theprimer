@@ -6,49 +6,42 @@ export async function askAITutor(
   const studentName = studentContext?.name || 'طالبنا العزيز';
 
   if (!apiKey) {
-    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env لتفعيل الذكاء الاصطناعي.`;
+    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env.`;
   }
 
-  const systemPrompt = `
-    أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري.
-    اسم الطالب: ${studentName}
-    الصف الدراسي: ${studentContext?.grade || 'الثانوي'}
-    نقاط تحتاج تركيز: ${studentContext?.weakTopics?.join('، ') || 'لا توجد'}
-    قم بالشرح بطريقة مبسطة، ودودة، وتفاعلية خطوة بخطوة باللغة العربية.
-  `;
+  // تنظيف النص ومنع الأسطر الجديدة والمسافات الزائدة التي تسبب 400 Bad Request
+  const systemPrompt = `أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري. اسم الطالب: ${studentName}. الصف الدراسي: ${studentContext?.grade || 'الثانوي'}. اشرح بطريقة مبسطة وتفاعلية باللغة العربية.`;
 
-  // نماذج Groq الرسمية والمستقرة جداً
-  const models = ['llama-3.1-8b-instant', 'llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768'];
+  // استخدام النموذج الأكثر استقراراً وسرعة على Groq
+  const model = 'llama-3.3-70b-versatile';
 
-  for (const model of models) {
-    try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.7
-        })
-      });
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7
+      })
+    });
 
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.choices?.[0]?.message?.content;
-        if (text) return text;
-      } else {
-        const err = await res.json().catch(() => null);
-        console.warn(`Groq model ${model} failed:`, err);
-      }
-    } catch (e) {
-      console.warn(`Groq fetch exception for ${model}:`, e);
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) return text;
+    } else {
+      const err = await res.json().catch(() => null);
+      console.error("Groq Response Error:", err);
     }
+  } catch (e) {
+    console.error("Groq fetch exception:", e);
   }
 
   return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة.`;
