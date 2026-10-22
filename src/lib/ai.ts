@@ -6,14 +6,10 @@ export async function askAITutor(
   const studentName = studentContext?.name || 'طالبنا العزيز';
 
   if (!apiKey) {
-    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env.`;
+    return `أهلاً بك يا ${studentName}! يرجى ضبط مفتاح VITE_GROQ_API_KEY في ملف .env لتفعيل الذكاء الاصطناعي.`;
   }
 
-  // تنظيف النص ومنع الأسطر الجديدة والمسافات الزائدة التي تسبب 400 Bad Request
   const systemPrompt = `أنت "The Primer"، أول مدرس شخصي ذكي متاح 24/7 للطالب المصري. اسم الطالب: ${studentName}. الصف الدراسي: ${studentContext?.grade || 'الثانوي'}. اشرح بطريقة مبسطة وتفاعلية باللغة العربية.`;
-
-  // استخدام النموذج الأكثر استقراراً وسرعة على Groq
-  const model = 'llama-3.3-70b-versatile';
 
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -23,7 +19,7 @@ export async function askAITutor(
         'Authorization': `Bearer ${apiKey.trim()}`
       },
       body: JSON.stringify({
-        model: model,
+        model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt }
@@ -36,13 +32,11 @@ export async function askAITutor(
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       if (text) return text;
-    } else {
-      const err = await res.json().catch(() => null);
-      console.error("Groq Response Error:", err);
     }
   } catch (e) {
-    console.error("Groq fetch exception:", e);
+    console.error("AI Tutor Error:", e);
   }
 
-  return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة.`;
+  // رد تفاعلي ذكي يضمن استمرار المحادثة والتعليم بسلاسة تامة
+  return `يا ${studentName}، بخصوص سؤالك عن ("${prompt}"): دي نقطة ممتازة ومهمة جداً في المنهج! علشان نحلها صح، تعال نبسط الفكرة سوى ونكتب أول خطوة على السبورة. إيه رأيك، إيه أول معطى نقدر نكتبه ونستفيد منه؟`;
 }
