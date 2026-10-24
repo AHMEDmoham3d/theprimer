@@ -55,7 +55,7 @@ export default async function handler(
                     {
                       type: 'speech_metadata',
                       style:
-                        'A warm, clear, friendly male teacher speaking naturally in Egyptian Arabic. Use conversational pacing, natural pauses, and a patient educational tone. Speak the provided text verbatim.',
+                        'A warm, clear, friendly teacher speaking naturally in Egyptian Arabic. Use conversational pacing, natural pauses, and a patient educational tone. Speak the provided text verbatim.',
                     },
                   ],
                 },
@@ -64,6 +64,8 @@ export default async function handler(
           ],
           response_format: {
             type: 'audio',
+            mime_type: 'audio/l16',
+            sample_rate: 24000,
           },
           generation_config: {
             speech_config: [
@@ -72,17 +74,18 @@ export default async function handler(
               },
             ],
           },
+          stream: true,
         }),
       }
     );
 
-    const data = await response.json().catch(() => null);
-
     if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+
       console.error(
         'Gemini TTS error:',
         response.status,
-        data
+        errorData
       );
 
       return res.status(
@@ -95,28 +98,102 @@ export default async function handler(
       });
     }
 
-    const audioData =
-      data?.output_audio?.data ||
-      data?.steps
-        ?.filter((step: any) => step.type === 'model_output')
-        ?.flatMap((step: any) => step.content || [])
-        ?.filter((item: any) => item.type === 'audio')
-        ?.at(-1)?.data;
-
-    if (typeof audioData !== 'string' || !audioData) {
-      console.error('Gemini returned no audio data');
-
+    if (!response.body) {
       return res.status(502).json({
-        error: 'No audio was returned',
+        error: 'Gemini audio stream is unavailable',
       });
     }
 
-    return res.status(200).json({
-      audio: audioData,
-      mimeType: 'audio/wav',
-    });
+    res.status(200);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    let pending = '';
+    let audioReceived = false;
+
+    function processEvent(block: string) {
+      const dataLines = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim());
+
+      if (dataLines.length === 0) return;
+
+      const dataText = dataLines.join('\n');
+
+      if (!dataText || dataText === '[DONE]') return;
+
+      try {
+        const event = JSON.parse(dataText);
+        const delta = event?.delta;
+
+        if (
+          delta?.type === 'audio' &&
+          typeof delta.data === 'string'
+        ) {
+          const audioBytes = Buffer.from(delta.data, 'base64');
+
+          if (audioBytes.length > 0) {
+            audioReceived = true;
+            res.write(audioBytes);
+          }
+        }
+
+        if (event?.event_type === 'error') {
+          console.error('Gemini stream error:', event);
+        }
+      } catch (error) {
+        console.error('Could not parse Gemini stream event:', error);
+      }
+    }
+
+    while (true) {
+      const { value, done } = await reader.read();
+
+      if (done) break;
+
+      pending += decoder.decode(value, { stream: true });
+      pending = pending.replace(/\r\n/g, '\n');
+
+      let separator = pending.indexOf('\n\n');
+
+      while (separator !== -1) {
+        const block = pending.slice(0, separator);
+        pending = pending.slice(separator + 2);
+
+        processEvent(block);
+
+        separator = pending.indexOf('\n\n');
+      }
+    }
+
+    pending += decoder.decode();
+
+    if (pending.trim()) {
+      processEvent(pending);
+    }
+
+    if (!audioReceived) {
+      console.error('Gemini stream returned no audio chunks');
+
+      if (!res.headersSent) {
+        return res.status(502).json({
+          error: 'No audio was returned',
+        });
+      }
+    }
+
+    return res.end();
   } catch (error) {
-    console.error('TTS backend error:', error);
+    console.error('TTS streaming error:', error);
+
+    if (res.headersSent) {
+      return res.end();
+    }
 
     return res.status(502).json({
       error: 'Unable to connect to the speech service',
