@@ -68,7 +68,7 @@ export default async function handler(
           generation_config: {
             speech_config: [
               {
-                voice: 'Charon',
+                voice: 'Kore',
               },
             ],
           },
