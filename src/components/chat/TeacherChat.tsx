@@ -10,26 +10,82 @@ import { SUBJECT_META, ALL_SUBJECTS } from '@/data/subjects';
 import { SMART_QUESTIONS } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
-  fetchStudentProgress, fetchStudentSchedule, fetchLessonMasteryBySubject,
-  type StudentProgressRow, type ScheduleSlotRow, type LessonMasteryRow,
+  fetchStudentProgress,
+  fetchStudentSchedule,
+  fetchLessonMasteryBySubject,
+  type StudentProgressRow,
+  type ScheduleSlotRow,
+  type LessonMasteryRow,
 } from '@/lib/db';
 import { supabase } from '@/lib/supabase';
 import { askAITutor } from '@/lib/ai';
-import { playTutorAudio } from '@/lib/tts';
+import { playTutorAudio, stopTutorAudio } from '@/lib/tts';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
   studentName: string;
 }
 
-const DYNAMIC_SUBJECT_WHITEBOARDS: Record<Subject, { title: string; steps: string[] }> = {
-  math: { title: 'توضيح القاعدة الرياضية والخطوات', steps: ['1. كتابة المعطيات وتحديد المطلوب في المعادلة', '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة', '3. الوصول للحل النهائي والتحقق من صحته'] },
-  physics: { title: 'تحليل القوانين والقوى الفيزيائية', steps: ['1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل)', '2. تعويض الأرقام والوحدات القياسية', '3. استنتاج النتيجة الفيزيائية'] },
-  chemistry: { title: 'توضيح التفاعل والروابط الكيميائية', steps: ['1. كتابة رموز العناصر المشاركة في التفاعل', '2. توزيع الإلكترونات وتحديد نوع الرابطة', '3. وزن المعادلة الكيميائية النهائية'] },
-  biology: { title: 'مخطط العمليات الحيوية في الخلية', steps: ['1. تحديد العضو أو الخلية المستهدفة', '2. توضيح مراحل الانقسام أو التفاعل الحيوي', '3. تلخيص الوظيفة النهائية'] },
-  history: { title: 'تسلسل الأحداث والتواريخ المهمة', steps: ['1. تحديد الحدث الرئيسي والأطراف المشاركة', '2. توضيح الأسباب والنتائج المترتبة عليه', '3. ربط الحدث بالسياق التاريخي العام'] },
-  english: { title: 'قاعدة الجرامر وبناء الجملة', steps: ['1. كتابة التكوين الأساسي للقاعدة (Structure)', '2. إعطاء أمثلة توضيحية للإثبات والنفي', '3. تطبيق تدريب سريع للتأكيد'] },
-  geography: { title: 'تحليل الظواهر الجغرافية والموارد', steps: ['1. تحديد الموقع أو الظاهرة على الخريطة', '2. دراسة العوامل المؤثرة (المناخ، التضاريس)', '3. استنتاج التوزيع الاقتصادي أو السكاني'] },
+const DYNAMIC_SUBJECT_WHITEBOARDS: Record<
+  Subject,
+  { title: string; steps: string[] }
+> = {
+  math: {
+    title: 'توضيح القاعدة الرياضية والخطوات',
+    steps: [
+      '1. كتابة المعطيات وتحديد المطلوب في المعادلة',
+      '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة',
+      '3. الوصول للحل النهائي والتحقق من صحته',
+    ],
+  },
+  physics: {
+    title: 'تحليل القوانين والقوى الفيزيائية',
+    steps: [
+      '1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل)',
+      '2. تعويض الأرقام والوحدات القياسية',
+      '3. استنتاج النتيجة الفيزيائية',
+    ],
+  },
+  chemistry: {
+    title: 'توضيح التفاعل والروابط الكيميائية',
+    steps: [
+      '1. كتابة رموز العناصر المشاركة في التفاعل',
+      '2. توزيع الإلكترونات وتحديد نوع الرابطة',
+      '3. وزن المعادلة الكيميائية النهائية',
+    ],
+  },
+  biology: {
+    title: 'مخطط العمليات الحيوية في الخلية',
+    steps: [
+      '1. تحديد العضو أو الخلية المستهدفة',
+      '2. توضيح مراحل الانقسام أو التفاعل الحيوي',
+      '3. تلخيص الوظيفة النهائية',
+    ],
+  },
+  history: {
+    title: 'تسلسل الأحداث والتواريخ المهمة',
+    steps: [
+      '1. تحديد الحدث الرئيسي والأطراف المشاركة',
+      '2. توضيح الأسباب والنتائج المترتبة عليه',
+      '3. ربط الحدث بالسياق التاريخي العام',
+    ],
+  },
+  english: {
+    title: 'قاعدة الجرامر وبناء الجملة',
+    steps: [
+      '1. كتابة التكوين الأساسي للقاعدة (Structure)',
+      '2. إعطاء أمثلة توضيحية للإثبات والنفي',
+      '3. تطبيق تدريب سريع للتأكيد',
+    ],
+  },
+  geography: {
+    title: 'تحليل الظواهر الجغرافية والموارد',
+    steps: [
+      '1. تحديد الموقع أو الظاهرة على الخريطة',
+      '2. دراسة العوامل المؤثرة (المناخ، التضاريس)',
+      '3. استنتاج التوزيع الاقتصادي أو السكاني',
+    ],
+  },
 };
 
 function detectSubject(text: string): Subject {
@@ -38,13 +94,31 @@ function detectSubject(text: string): Subject {
   const lower = text.toLowerCase();
 
   const keywords: Record<Subject, string[]> = {
-    math: ['معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل', 'كسر', 'هندسة', 'مثلث', 'math', 'equation'],
-    physics: ['فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل', 'طاقة', 'physics', 'force'],
-    chemistry: ['كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون', 'chemistry', 'atom'],
-    biology: ['أحياء', 'خلية', 'انقسام', 'وراثة', 'dna', 'biology', 'cell'],
-    history: ['تاريخ', 'ثورة', 'سعد زغلول', 'history', 'revolution'],
-    english: ['english', 'grammar', 'tense', 'writing', 'إنجليزي', 'قواعد'],
-    geography: ['جغرافيا', 'خريطة', 'مصر', 'geography', 'map'],
+    math: [
+      'معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل',
+      'كسر', 'هندسة', 'مثلث', 'math', 'equation',
+    ],
+    physics: [
+      'فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل',
+      'طاقة', 'physics', 'force',
+    ],
+    chemistry: [
+      'كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون',
+      'chemistry', 'atom',
+    ],
+    biology: [
+      'أحياء', 'خلية', 'انقسام', 'وراثة', 'dna',
+      'biology', 'cell',
+    ],
+    history: [
+      'تاريخ', 'ثورة', 'سعد زغلول', 'history', 'revolution',
+    ],
+    english: [
+      'english', 'grammar', 'tense', 'writing', 'إنجليزي', 'قواعد',
+    ],
+    geography: [
+      'جغرافيا', 'خريطة', 'مصر', 'geography', 'map',
+    ],
   };
 
   for (const subject of ALL_SUBJECTS) {
@@ -85,6 +159,7 @@ export function TeacherChat({
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -94,12 +169,16 @@ export function TeacherChat({
   }, [messages, typing, drawing]);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       try {
         const [p, s] = await Promise.all([
           fetchStudentProgress(activeStudentId).catch(() => []),
           fetchStudentSchedule(activeStudentId).catch(() => []),
         ]);
+
+        if (cancelled) return;
 
         setDbProgress(p || []);
         setDbSchedule(s || []);
@@ -110,20 +189,51 @@ export function TeacherChat({
           .eq('id', activeStudentId)
           .maybeSingle();
 
-        if (!studentError && studentData?.curriculum_name) {
+        if (
+          !cancelled &&
+          !studentError &&
+          studentData?.curriculum_name
+        ) {
           setStudentCurriculum(studentData.curriculum_name);
         }
       } catch (err) {
-        console.warn('DB offline fallback', err);
+        if (!cancelled) {
+          console.warn('DB offline fallback', err);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeStudentId]);
 
   useEffect(() => {
+    let cancelled = false;
+
     fetchLessonMasteryBySubject(activeStudentId, activeSubject)
-      .then((res) => setDbLessons(res || []))
-      .catch(() => setDbLessons([]));
+      .then((res) => {
+        if (!cancelled) {
+          setDbLessons(res || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDbLessons([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeStudentId, activeSubject]);
+
+  useEffect(() => {
+    return () => {
+      requestIdRef.current++;
+      stopTutorAudio();
+    };
+  }, []);
 
   const currentActiveLesson = useMemo(() => {
     return dbLessons.find((l) => l.unlocked && !l.exam_passed) || dbLessons[0];
@@ -133,9 +243,13 @@ export function TeacherChat({
   const ActiveIcon = activeMeta.icon;
 
   const send = async (text?: string) => {
-    const content = text || input;
+    const content = (text ?? input).trim();
 
-    if (!content || !content.trim()) return;
+    if (!content) return;
+
+    // Invalidate earlier requests and stop any previous playback.
+    const currentRequestId = ++requestIdRef.current;
+    stopTutorAudio();
 
     const detectedSubject = detectSubject(content);
     setActiveSubject(detectedSubject);
@@ -150,24 +264,28 @@ export function TeacherChat({
       }),
     };
 
-    setMessages((m) => [...m, studentMsg]);
+    setMessages((currentMessages) => [...currentMessages, studentMsg]);
     setInput('');
     setTyping(true);
 
     let responseText = '';
 
     try {
-      // Generate the written answer using Groq.
       responseText = await askAITutor(content, {
         name: studentName,
         grade: currentActiveLesson?.lesson_title || 'الثانوي',
         weakTopics: dbProgress.map((p) => p.subject),
       });
-    } catch (e) {
-      console.warn('AI call error:', e);
+    } catch (error) {
+      console.warn('AI call error:', error);
 
-      responseText = `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! قول لي إيه أكتر نقطة حابب نوضحها على السبورة؟`;
+      responseText =
+        `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! ` +
+        'قول لي إيه أكتر نقطة حابب نوضحها على السبورة؟';
     }
+
+    // Ignore a stale response if the student has sent another question.
+    if (currentRequestId !== requestIdRef.current) return;
 
     setTyping(false);
     setDrawing(true);
@@ -176,10 +294,13 @@ export function TeacherChat({
       DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] ||
       DYNAMIC_SUBJECT_WHITEBOARDS.math;
 
+    const messageId = `a-${Date.now()}-${currentRequestId}`;
+    const useVoice = voiceOn && !muted;
+
     const aiMsg: ChatMessage = {
-      id: `a-${Date.now()}`,
+      id: messageId,
       role: 'ai',
-      text: responseText,
+      text: useVoice ? '' : responseText,
       timestamp: new Date().toLocaleTimeString('ar-EG', {
         hour: '2-digit',
         minute: '2-digit',
@@ -192,17 +313,40 @@ export function TeacherChat({
         >,
     };
 
-    setMessages((m) => [...m, aiMsg]);
+    setMessages((currentMessages) => [...currentMessages, aiMsg]);
 
-    // Automatically speak the answer after it is generated.
-    // The written answer remains visible if speech generation fails.
-    if (voiceOn && !muted) {
-      playTutorAudio(responseText).catch((error) => {
+    if (useVoice) {
+      try {
+        await playTutorAudio(responseText, (visibleText) => {
+          if (currentRequestId !== requestIdRef.current) return;
+
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === messageId
+                ? { ...message, text: visibleText }
+                : message
+            )
+          );
+        });
+      } catch (error) {
         console.warn('Tutor audio playback failed:', error);
-      });
+
+        // Keep the complete answer visible if audio generation fails.
+        if (currentRequestId === requestIdRef.current) {
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === messageId
+                ? { ...message, text: responseText }
+                : message
+            )
+          );
+        }
+      }
     }
 
-    setTimeout(() => setDrawing(false), 1200);
+    if (currentRequestId === requestIdRef.current) {
+      setDrawing(false);
+    }
   };
 
   const suggestedQuestions = useMemo(() => {
@@ -237,7 +381,11 @@ export function TeacherChat({
 
             <span className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
               <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-              {voiceActive ? 'معاك دلوقتي' : 'جاهز أي وقت'}
+              {typing
+                ? 'بجهز الإجابة...'
+                : voiceActive
+                  ? 'معاك دلوقتي'
+                  : 'جاهز أي وقت'}
             </span>
           </div>
 
@@ -245,6 +393,7 @@ export function TeacherChat({
             <button
               onClick={() => setPanelOpen(!panelOpen)}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-neutral-800 text-neutral-300 hover:text-white transition"
+              aria-label={panelOpen ? 'إغلاق تفاصيل المنهج' : 'عرض تفاصيل المنهج'}
             >
               {panelOpen ? (
                 <PanelRightClose size={14} />
@@ -293,6 +442,7 @@ export function TeacherChat({
               <button
                 onClick={() => setSubjectBarOpen(false)}
                 className="text-neutral-500 hover:text-white"
+                aria-label="إخفاء المواد"
               >
                 <ChevronUp size={16} />
               </button>
@@ -313,10 +463,9 @@ export function TeacherChat({
           ref={scrollRef}
           className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0"
         >
-          {messages &&
-            messages.map((msg) => (
-              <MessageBubble key={msg.id || Math.random()} message={msg} />
-            ))}
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
 
           {typing && (
             <div className="flex items-center gap-2 text-neutral-500 text-xs">
@@ -377,15 +526,21 @@ export function TeacherChat({
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && send()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
               placeholder="اسأل مدرّسك..."
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
 
             <button
-              onClick={() => send()}
+              onClick={() => void send()}
               disabled={!input.trim()}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
+              aria-label="إرسال السؤال"
             >
               <Send size={18} />
             </button>
@@ -404,6 +559,7 @@ export function TeacherChat({
             <button
               onClick={() => setPanelOpen(false)}
               className="text-neutral-400 hover:text-white"
+              aria-label="إغلاق تفاصيل المنهج"
             >
               <X size={16} />
             </button>

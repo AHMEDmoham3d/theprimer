@@ -1,42 +1,31 @@
 
 let currentAudioContext: AudioContext | null = null;
-
 let activeSources = new Set<AudioBufferSourceNode>();
-
-let nextStartTime = 0;
+let progressTimer: ReturnType<typeof setInterval> | null = null;
 let playbackId = 0;
 
 export async function playTutorAudio(
-  text: string
+  text: string,
+  onProgress?: (visibleText: string) => void
 ): Promise<void> {
   stopTutorAudio();
 
   const thisPlaybackId = playbackId;
-
-  const audioContext = new AudioContext({
-    sampleRate: 24000,
-  });
-
+  const audioContext = new AudioContext({ sampleRate: 24000 });
   currentAudioContext = audioContext;
-  nextStartTime = audioContext.currentTime;
 
   try {
     await audioContext.resume();
 
     const response = await fetch('/api/tts', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
 
     if (!response.ok) {
       const data = await response.json().catch(() => null);
-
-      throw new Error(
-        data?.error || 'Could not generate audio'
-      );
+      throw new Error(data?.error || 'Could not generate audio');
     }
 
     if (!response.body) {
@@ -44,9 +33,8 @@ export async function playTutorAudio(
     }
 
     const reader = response.body.getReader();
-
-    let pendingByte: number | null = null;
-    let receivedAudio = false;
+    const audioChunks: Uint8Array[] = [];
+    let totalBytes = 0;
 
     while (true) {
       const { value, done } = await reader.read();
@@ -59,69 +47,109 @@ export async function playTutorAudio(
       if (done) break;
       if (!value || value.length === 0) continue;
 
-      let bytes = value;
-
-      // Preserve a byte if a network chunk ends mid-sample.
-      if (pendingByte !== null) {
-        const combined = new Uint8Array(bytes.length + 1);
-        combined[0] = pendingByte;
-        combined.set(bytes, 1);
-        bytes = combined;
-        pendingByte = null;
-      }
-
-      if (bytes.length % 2 !== 0) {
-        pendingByte = bytes[bytes.length - 1];
-        bytes = bytes.subarray(0, bytes.length - 1);
-      }
-
-      if (bytes.length === 0) continue;
-
-      const samples = new Int16Array(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.length / 2
-      );
-
-      const audioBuffer = audioContext.createBuffer(
-        1,
-        samples.length,
-        24000
-      );
-
-      const channel = audioBuffer.getChannelData(0);
-
-      for (let i = 0; i < samples.length; i++) {
-        channel[i] = samples[i] / 32768;
-      }
-
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-
-      source.onended = () => {
-        activeSources.delete(source);
-      };
-
-      const startTime = Math.max(
-        nextStartTime,
-        audioContext.currentTime + 0.03
-      );
-
-      source.start(startTime);
-      activeSources.add(source);
-
-      nextStartTime = startTime + audioBuffer.duration;
-      receivedAudio = true;
+      audioChunks.push(value);
+      totalBytes += value.length;
     }
 
-    if (pendingByte !== null) {
-      console.warn('Incomplete final PCM audio sample received');
-    }
-
-    if (!receivedAudio) {
+    if (totalBytes < 2) {
       throw new Error('No audio chunks were received');
     }
+
+    // Combine the streamed PCM chunks into one byte array.
+    const allBytes = new Uint8Array(totalBytes);
+    let offset = 0;
+
+    for (const chunk of audioChunks) {
+      allBytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    // PCM 16-bit audio requires complete two-byte samples.
+    const usableLength = allBytes.length - (allBytes.length % 2);
+
+    if (usableLength === 0) {
+      throw new Error('The audio data is incomplete');
+    }
+
+    const samples = new Int16Array(
+      allBytes.buffer,
+      allBytes.byteOffset,
+      usableLength / 2
+    );
+
+    const audioBuffer = audioContext.createBuffer(
+      1,
+      samples.length,
+      24000
+    );
+
+    const channel = audioBuffer.getChannelData(0);
+
+    for (let i = 0; i < samples.length; i++) {
+      channel[i] = samples[i] / 32768;
+    }
+
+    if (thisPlaybackId !== playbackId) return;
+
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    activeSources.add(source);
+
+    const words = text.trim().split(/\s+/);
+    const duration = audioBuffer.duration;
+    const startTime = audioContext.currentTime + 0.05;
+
+    // Start with no visible text; reveal it as the audio progresses.
+    onProgress?.('');
+
+    source.onended = () => {
+      activeSources.delete(source);
+
+      if (progressTimer !== null) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+
+      if (thisPlaybackId === playbackId) {
+        onProgress?.(text);
+      }
+
+      if (currentAudioContext === audioContext) {
+        currentAudioContext = null;
+        void audioContext.close().catch(() => {});
+      }
+    };
+
+    source.start(startTime);
+
+    // Reveal whole words according to playback progress.
+    progressTimer = setInterval(() => {
+      if (thisPlaybackId !== playbackId) return;
+
+      const elapsed = Math.max(
+        0,
+        audioContext.currentTime - startTime
+      );
+
+      const progress = Math.min(1, elapsed / duration);
+      const visibleWordCount = Math.min(
+        words.length,
+        Math.ceil(progress * words.length)
+      );
+
+      onProgress?.(words.slice(0, visibleWordCount).join(' '));
+
+      if (progress >= 1 && progressTimer !== null) {
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+    }, 60);
+
+    // Resolve only after playback ends.
+    await new Promise<void>((resolve) => {
+      source.addEventListener('ended', () => resolve(), { once: true });
+    });
   } catch (error) {
     if (thisPlaybackId === playbackId) {
       stopTutorAudio();
@@ -133,6 +161,11 @@ export async function playTutorAudio(
 
 export function stopTutorAudio(): void {
   playbackId++;
+
+  if (progressTimer !== null) {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
 
   for (const source of activeSources) {
     try {
@@ -153,9 +186,6 @@ export function stopTutorAudio(): void {
   if (currentAudioContext) {
     const context = currentAudioContext;
     currentAudioContext = null;
-
     void context.close().catch(() => {});
   }
-
-  nextStartTime = 0;
 }
