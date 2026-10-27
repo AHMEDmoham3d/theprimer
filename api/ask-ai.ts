@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(
@@ -104,13 +103,13 @@ export default async function handler(
             },
           ],
           temperature: 0.7,
+          stream: true,
         }),
       }
     );
 
-    const data = await response.json().catch(() => null);
-
     if (!response.ok) {
+      const data = await response.json().catch(() => null);
       console.error('Groq API error:', response.status, data);
 
       return res.status(502).json({
@@ -118,21 +117,44 @@ export default async function handler(
       });
     }
 
-    const answer = data?.choices?.[0]?.message?.content;
+    if (!response.body) {
+      console.error('Groq API returned no response stream');
 
-    if (typeof answer === 'string' && answer.trim()) {
-      return res.status(200).json({
-        answer: answer.trim(),
+      return res.status(502).json({
+        error: 'No AI response stream was returned',
       });
     }
 
-    console.error('Groq API returned no answer');
+    // Forward Groq's Server-Sent Events directly to the browser as they arrive.
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
 
-    return res.status(502).json({
-      error: 'No AI answer was returned',
-    });
+    const reader = response.body.getReader();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        if (value) {
+          res.write(Buffer.from(value));
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return res.end();
   } catch (error) {
     console.error('AI backend error:', error);
+
+    if (res.headersSent) {
+      return res.end();
+    }
 
     return res.status(502).json({
       error: 'Unable to connect to the AI provider',

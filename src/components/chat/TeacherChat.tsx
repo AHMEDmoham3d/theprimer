@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send, Brain, X, PanelRightClose, PanelRightOpen,
@@ -244,7 +243,6 @@ export function TeacherChat({
 
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
-
     if (!content) return;
 
     // Invalidate earlier requests and stop any previous playback.
@@ -264,43 +262,16 @@ export function TeacherChat({
       }),
     };
 
-    setMessages((currentMessages) => [...currentMessages, studentMsg]);
-    setInput('');
-    setTyping(true);
-
-    let responseText = '';
-
-    try {
-      responseText = await askAITutor(content, {
-        name: studentName,
-        grade: currentActiveLesson?.lesson_title || 'الثانوي',
-        weakTopics: dbProgress.map((p) => p.subject),
-      });
-    } catch (error) {
-      console.warn('AI call error:', error);
-
-      responseText =
-        `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! ` +
-        'قول لي إيه أكتر نقطة حابب نوضحها على السبورة؟';
-    }
-
-    // Ignore a stale response if the student has sent another question.
-    if (currentRequestId !== requestIdRef.current) return;
-
-    setTyping(false);
-    setDrawing(true);
-
     const currentWb =
       DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] ||
       DYNAMIC_SUBJECT_WHITEBOARDS.math;
-
     const messageId = `a-${Date.now()}-${currentRequestId}`;
     const useVoice = voiceOn && !muted;
 
     const aiMsg: ChatMessage = {
       id: messageId,
       role: 'ai',
-      text: useVoice ? '' : responseText,
+      text: '',
       timestamp: new Date().toLocaleTimeString('ar-EG', {
         hour: '2-digit',
         minute: '2-digit',
@@ -313,34 +284,78 @@ export function TeacherChat({
         >,
     };
 
-    setMessages((currentMessages) => [...currentMessages, aiMsg]);
+    setMessages((currentMessages) => [...currentMessages, studentMsg, aiMsg]);
+    setInput('');
+    setTyping(true);
+    setDrawing(false);
 
-    if (useVoice) {
-      try {
-        await playTutorAudio(responseText, (visibleText) => {
+    let responseText = '';
+    let receivedFirstChunk = false;
+
+    try {
+      responseText = await askAITutor(
+        content,
+        {
+          name: studentName,
+          grade: currentActiveLesson?.lesson_title || 'الثانوي',
+          weakTopics: dbProgress.map((p) => p.subject),
+        },
+        (chunk) => {
           if (currentRequestId !== requestIdRef.current) return;
 
-          setMessages((currentMessages) =>
-            currentMessages.map((message) =>
-              message.id === messageId
-                ? { ...message, text: visibleText }
-                : message
-            )
-          );
-        });
-      } catch (error) {
-        console.warn('Tutor audio playback failed:', error);
+          if (!receivedFirstChunk) {
+            receivedFirstChunk = true;
+            setTyping(false);
+          }
 
-        // Keep the complete answer visible if audio generation fails.
-        if (currentRequestId === requestIdRef.current) {
           setMessages((currentMessages) =>
             currentMessages.map((message) =>
               message.id === messageId
-                ? { ...message, text: responseText }
+                ? { ...message, text: message.text + chunk }
                 : message
             )
           );
         }
+      );
+
+      if (currentRequestId !== requestIdRef.current) return;
+
+      // Keep the final, complete answer exactly as returned by the stream.
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === messageId
+            ? { ...message, text: responseText }
+            : message
+        )
+      );
+    } catch (error) {
+      console.warn('AI call error:', error);
+      responseText =
+        `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! ` +
+        'حصلت مشكلة أثناء تجهيز الإجابة. جرّب تبعت سؤالك تاني بعد قليل.';
+
+      if (currentRequestId === requestIdRef.current) {
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === messageId
+              ? { ...message, text: responseText }
+              : message
+          )
+        );
+      }
+    }
+
+    if (currentRequestId !== requestIdRef.current) return;
+
+    setTyping(false);
+    setDrawing(true);
+
+    // Phase 1 streams the text. Audio still starts after the full answer is ready.
+    if (useVoice && responseText.trim()) {
+      try {
+        await playTutorAudio(responseText);
+      } catch (error) {
+        console.warn('Tutor audio playback failed:', error);
       }
     }
 
