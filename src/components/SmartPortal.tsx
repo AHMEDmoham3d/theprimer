@@ -27,7 +27,8 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   }, []);
 
   const [studentName, setStudentName] = useState('');
-  const [studentGrade, setStudentGrade] = useState('grade1');
+  const [studentStage, setStudentStage] = useState<'primary' | 'preparatory' | 'secondary'>('secondary');
+  const [studentGrade, setStudentGrade] = useState('secondary-1');
   const [studentPhone, setStudentPhone] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
   const [parentName, setParentName] = useState('');
@@ -38,8 +39,17 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const grades = [t.grade1, t.grade2, t.grade3];
-  const gradeKeys = ['grade1', 'grade2', 'grade3'];
+  const gradeOptions = studentStage === 'primary'
+    ? Array.from({ length: 6 }, (_, i) => ({ value: `primary-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث','الرابع','الخامس','السادس'][i]} الابتدائي`, en: `Grade ${i + 1} Primary` }))
+    : studentStage === 'preparatory'
+      ? Array.from({ length: 3 }, (_, i) => ({ value: `preparatory-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث'][i]} الإعدادي`, en: `Grade ${i + 1} Preparatory` }))
+      : Array.from({ length: 3 }, (_, i) => ({ value: `secondary-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث'][i]} الثانوي`, en: `Grade ${i + 1} Secondary` }));
+
+  useEffect(() => {
+    if (!gradeOptions.some((grade) => grade.value === studentGrade)) {
+      setStudentGrade(gradeOptions[0].value);
+    }
+  }, [studentStage]);
 
   const handleStudentSubmit = async () => {
     setError('');
@@ -48,8 +58,9 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
       return;
     }
     setSubmitting(true);
-    const gradeLabel = grades[gradeKeys.indexOf(studentGrade)] ?? t.grade1;
-    
+    const selectedGrade = gradeOptions.find((grade) => grade.value === studentGrade);
+    const gradeLabel = selectedGrade ? (lang === 'ar' ? selectedGrade.ar : selectedGrade.en) : studentGrade;
+
     // 1. تسجيل الطالب في جدول سابيز
     await createStudent({
       name: studentName,
@@ -244,15 +255,29 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
               {/* Form fields */}
               <div className="space-y-3">
                 <FormField label={t.studentName} value={studentName} onChange={setStudentName} placeholder={lang === 'ar' ? 'أحمد محمد' : 'Ahmed Mohamed'} />
-                <div>
-                  <label className="text-xs text-neutral-400 mb-1.5 block">{t.grade}</label>
-                  <select
-                    value={studentGrade}
-                    onChange={(e) => setStudentGrade(e.target.value)}
-                    className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555]"
-                  >
-                    {grades.map((g, i) => <option key={gradeKeys[i]} value={gradeKeys[i]}>{g}</option>)}
-                  </select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-neutral-400 mb-1.5 block">{lang === 'ar' ? 'المرحلة الدراسية' : 'School stage'}</label>
+                    <select
+                      value={studentStage}
+                      onChange={(e) => setStudentStage(e.target.value as 'primary' | 'preparatory' | 'secondary')}
+                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555]"
+                    >
+                      <option value="primary">{lang === 'ar' ? 'ابتدائي' : 'Primary'}</option>
+                      <option value="preparatory">{lang === 'ar' ? 'إعدادي' : 'Preparatory'}</option>
+                      <option value="secondary">{lang === 'ar' ? 'ثانوي' : 'Secondary'}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-400 mb-1.5 block">{t.grade}</label>
+                    <select
+                      value={studentGrade}
+                      onChange={(e) => setStudentGrade(e.target.value)}
+                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555]"
+                    >
+                      {gradeOptions.map((grade) => <option key={grade.value} value={grade.value}>{lang === 'ar' ? grade.ar : grade.en}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <FormField label={t.studentPhone} value={studentPhone} onChange={setStudentPhone} placeholder="010xxxxxxxx" />

@@ -12,6 +12,7 @@ import {
   fetchStudentProgress,
   fetchStudentSchedule,
   fetchLessonMasteryBySubject,
+  fetchCurriculumSubjects,
   type StudentProgressRow,
   type ScheduleSlotRow,
   type LessonMasteryRow,
@@ -156,6 +157,7 @@ export function TeacherChat({
   const [studentCurriculum, setStudentCurriculum] = useState<string>(
     'المنهج العام (المصري)'
   );
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>(ALL_SUBJECTS);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
@@ -184,16 +186,27 @@ export function TeacherChat({
 
         const { data: studentData, error: studentError } = await supabase
           .from('students')
-          .select('curriculum_name')
+          .select('curriculum_id, curriculum_name')
           .eq('id', activeStudentId)
           .maybeSingle();
 
-        if (
-          !cancelled &&
-          !studentError &&
-          studentData?.curriculum_name
-        ) {
-          setStudentCurriculum(studentData.curriculum_name);
+        if (!cancelled && !studentError && studentData) {
+          if (studentData.curriculum_name) {
+            setStudentCurriculum(studentData.curriculum_name);
+          }
+
+          if (studentData.curriculum_id) {
+            const curriculumSubjects = await fetchCurriculumSubjects(studentData.curriculum_id);
+            if (!cancelled && curriculumSubjects.length > 0) {
+              const validSubjects = curriculumSubjects
+                .map((row) => row.subject_key as Subject)
+                .filter((subject) => ALL_SUBJECTS.includes(subject));
+              if (validSubjects.length > 0) {
+                setAvailableSubjects(validSubjects);
+                setActiveSubject((current) => validSubjects.includes(current) ? current : validSubjects[0]);
+              }
+            }
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -418,12 +431,11 @@ export function TeacherChat({
             </button>
           </div>
         </div>
-
-        <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
+                <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {subjectBarOpen ? (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
-                {ALL_SUBJECTS.map((subj) => {
+                {availableSubjects.map((subj) => {
                   const meta = SUBJECT_META[subj] || SUBJECT_META.math;
                   const Icon = meta.icon;
                   const isActive = activeSubject === subj;
