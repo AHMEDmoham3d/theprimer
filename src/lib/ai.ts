@@ -1,10 +1,16 @@
+
+export interface StudentContext {
+  name: string;
+  grade: string;
+  stage?: string;
+  curriculum?: string;
+  subject?: string;
+  weakTopics: string[];
+}
+
 export async function askAITutor(
   prompt: string,
-  studentContext?: {
-    name: string;
-    grade: string;
-    weakTopics: string[];
-  },
+  studentContext?: StudentContext,
   onChunk?: (chunk: string) => void
 ): Promise<string> {
   const res = await fetch('/api/ask-ai', {
@@ -69,7 +75,6 @@ export async function askAITutor(
             onChunk?.(chunk);
           }
         } catch (error) {
-          // Ignore malformed or incomplete SSE events.
           console.warn('Could not parse an AI stream event:', error);
         }
       }

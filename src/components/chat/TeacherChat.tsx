@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send, Brain, X, PanelRightClose, PanelRightOpen,
@@ -13,11 +14,11 @@ import {
   fetchStudentSchedule,
   fetchLessonMasteryBySubject,
   fetchCurriculumSubjects,
+  fetchStudentById,
   type StudentProgressRow,
   type ScheduleSlotRow,
   type LessonMasteryRow,
 } from '@/lib/db';
-import { supabase } from '@/lib/supabase';
 import { askAITutor } from '@/lib/ai';
 import { playTutorAudio, stopTutorAudio } from '@/lib/tts';
 
@@ -134,11 +135,11 @@ export function TeacherChat({
   messages: initialMessages,
   studentName,
 }: TeacherChatProps) {
+  // Use the real student ID; never substitute another student's ID.
   const activeStudentId =
     typeof window !== 'undefined'
-      ? localStorage.getItem('current_student_id') ||
-        'dfb49b28-c914-4711-91b6-12016f1e34a5'
-      : 'dfb49b28-c914-4711-91b6-12016f1e34a5';
+      ? localStorage.getItem('current_student_id') || ''
+      : '';
 
   const [messages, setMessages] = useState<ChatMessage[]>(
     initialMessages || []
@@ -151,13 +152,18 @@ export function TeacherChat({
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeSubject, setActiveSubject] = useState<Subject>('math');
   const [subjectBarOpen, setSubjectBarOpen] = useState(true);
+
   const [dbProgress, setDbProgress] = useState<StudentProgressRow[]>([]);
   const [dbSchedule, setDbSchedule] = useState<ScheduleSlotRow[]>([]);
   const [dbLessons, setDbLessons] = useState<LessonMasteryRow[]>([]);
-  const [studentCurriculum, setStudentCurriculum] = useState<string>(
-    'المنهج العام (المصري)'
+
+  const [studentCurriculum, setStudentCurriculum] = useState(
+    'جاري تحميل المنهج...'
   );
-  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>(ALL_SUBJECTS);
+  const [studentStage, setStudentStage] = useState('');
+  const [studentGrade, setStudentGrade] = useState('');
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+  const [studentLoadError, setStudentLoadError] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
@@ -169,59 +175,126 @@ export function TeacherChat({
     });
   }, [messages, typing, drawing]);
 
+  // Load the selected student's actual curriculum, stage, grade, and subjects.
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
+    async function loadStudentData() {
+      setDbProgress([]);
+      setDbSchedule([]);
+      setDbLessons([]);
+      setAvailableSubjects([]);
+      setStudentStage('');
+      setStudentGrade('');
+      setStudentLoadError('');
+
+      if (!activeStudentId) {
+        setStudentCurriculum('لم يتم تحديد الطالب');
+        setStudentLoadError(
+          'معرّف الطالب غير موجود. سجّل دخول الطالب أو أكمل تسجيله أولًا.'
+        );
+        return;
+      }
+
       try {
-        const [p, s] = await Promise.all([
-          fetchStudentProgress(activeStudentId).catch(() => []),
-          fetchStudentSchedule(activeStudentId).catch(() => []),
+        const student = await fetchStudentById(activeStudentId);
+
+        if (cancelled) return;
+
+        if (!student) {
+          setStudentCurriculum('تعذّر تحميل المنهج');
+          setStudentLoadError(
+            'لم نتمكن من تحميل بيانات الطالب. تأكد من تسجيل الدخول وصلاحيات قاعدة البيانات.'
+          );
+          return;
+        }
+
+        setStudentCurriculum(
+          student.curriculum_name || 'لم يتم تحديد المنهج'
+        );
+        setStudentStage(student.stage || '');
+        setStudentGrade(student.grade_code || student.grade || '');
+
+        const [progress, schedule] = await Promise.all([
+          fetchStudentProgress(activeStudentId),
+          fetchStudentSchedule(activeStudentId),
         ]);
 
         if (cancelled) return;
 
-        setDbProgress(p || []);
-        setDbSchedule(s || []);
+        setDbProgress(progress);
+        setDbSchedule(schedule);
 
-        const { data: studentData, error: studentError } = await supabase
-          .from('students')
-          .select('curriculum_id, curriculum_name')
-          .eq('id', activeStudentId)
-          .maybeSingle();
-
-        if (!cancelled && !studentError && studentData) {
-          if (studentData.curriculum_name) {
-            setStudentCurriculum(studentData.curriculum_name);
-          }
-
-          if (studentData.curriculum_id) {
-            const curriculumSubjects = await fetchCurriculumSubjects(studentData.curriculum_id);
-            if (!cancelled && curriculumSubjects.length > 0) {
-              const validSubjects = curriculumSubjects
-                .map((row) => row.subject_key as Subject)
-                .filter((subject) => ALL_SUBJECTS.includes(subject));
-              if (validSubjects.length > 0) {
-                setAvailableSubjects(validSubjects);
-                setActiveSubject((current) => validSubjects.includes(current) ? current : validSubjects[0]);
-              }
-            }
-          }
+        if (!student.curriculum_id) {
+          setStudentLoadError(
+            'لم يتم ربط الطالب بمنهج دراسي حتى الآن.'
+          );
+          return;
         }
-      } catch (err) {
+
+        if (!student.stage || !student.grade_code) {
+          setStudentLoadError(
+            'المرحلة أو الصف الدراسي غير محدد في بيانات الطالب.'
+          );
+          return;
+        }
+
+        const curriculumSubjects = await fetchCurriculumSubjects(
+          student.curriculum_id,
+          student.stage,
+          student.grade_code
+        );
+
+        if (cancelled) return;
+
+        const validSubjects = Array.from(
+          new Set(
+            curriculumSubjects
+              .map((row) => row.subject_key)
+              .filter((key): key is Subject =>
+                ALL_SUBJECTS.includes(key as Subject)
+              )
+          )
+        );
+
+        setAvailableSubjects(validSubjects);
+
+        if (validSubjects.length > 0) {
+          setActiveSubject((current) =>
+            validSubjects.includes(current) ? current : validSubjects[0]
+          );
+        } else {
+          setStudentLoadError(
+            'لم يتم العثور على مواد مسجلة لهذا المنهج والمرحلة والصف، أو أن المواد المسجلة غير مدعومة في واجهة التطبيق الحالية.'
+          );
+        }
+      } catch (error) {
+        console.error('Failed to load student data:', error);
+
         if (!cancelled) {
-          console.warn('DB offline fallback', err);
+          setStudentCurriculum('تعذّر تحميل المنهج');
+          setStudentLoadError(
+            'حدث خطأ أثناء تحميل بيانات الطالب والمنهج.'
+          );
         }
       }
-    })();
+    }
+
+    void loadStudentData();
 
     return () => {
       cancelled = true;
     };
   }, [activeStudentId]);
 
+  // Load lesson mastery only when a real student and a valid subject exist.
   useEffect(() => {
     let cancelled = false;
+
+    if (!activeStudentId || !availableSubjects.includes(activeSubject)) {
+      setDbLessons([]);
+      return;
+    }
 
     fetchLessonMasteryBySubject(activeStudentId, activeSubject)
       .then((res) => {
@@ -238,7 +311,7 @@ export function TeacherChat({
     return () => {
       cancelled = true;
     };
-  }, [activeStudentId, activeSubject]);
+  }, [activeStudentId, activeSubject, availableSubjects]);
 
   useEffect(() => {
     return () => {
@@ -248,7 +321,8 @@ export function TeacherChat({
   }, []);
 
   const currentActiveLesson = useMemo(() => {
-    return dbLessons.find((l) => l.unlocked && !l.exam_passed) || dbLessons[0];
+    return dbLessons.find((lesson) => lesson.unlocked && !lesson.exam_passed)
+      || dbLessons[0];
   }, [dbLessons]);
 
   const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
@@ -256,14 +330,35 @@ export function TeacherChat({
 
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
+
     if (!content) return;
 
-    // Invalidate earlier requests and stop any previous playback.
+    if (!activeStudentId) {
+      setStudentLoadError(
+        'لا يمكن إرسال السؤال قبل تحديد الطالب. سجّل دخول الطالب أولًا.'
+      );
+      return;
+    }
+
+    if (availableSubjects.length === 0) {
+      setStudentLoadError(
+        'لا توجد مواد متاحة لهذا الطالب حتى الآن. راجع المنهج والمرحلة والصف المسجلين.'
+      );
+      return;
+    }
+
+    // Keep the detected subject inside the student's available curriculum.
+    const detectedSubject = detectSubject(content);
+    const selectedSubject = availableSubjects.includes(detectedSubject)
+      ? detectedSubject
+      : availableSubjects.includes(activeSubject)
+        ? activeSubject
+        : availableSubjects[0];
+
     const currentRequestId = ++requestIdRef.current;
     stopTutorAudio();
 
-    const detectedSubject = detectSubject(content);
-    setActiveSubject(detectedSubject);
+    setActiveSubject(selectedSubject);
 
     const studentMsg: ChatMessage = {
       id: `s-${Date.now()}`,
@@ -276,8 +371,9 @@ export function TeacherChat({
     };
 
     const currentWb =
-      DYNAMIC_SUBJECT_WHITEBOARDS[detectedSubject] ||
-      DYNAMIC_SUBJECT_WHITEBOARDS.math;
+      DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject]
+      || DYNAMIC_SUBJECT_WHITEBOARDS.math;
+
     const messageId = `a-${Date.now()}-${currentRequestId}`;
     const useVoice = voiceOn && !muted;
 
@@ -297,7 +393,11 @@ export function TeacherChat({
         >,
     };
 
-    setMessages((currentMessages) => [...currentMessages, studentMsg, aiMsg]);
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      studentMsg,
+      aiMsg,
+    ]);
     setInput('');
     setTyping(true);
     setDrawing(false);
@@ -305,13 +405,20 @@ export function TeacherChat({
     let responseText = '';
     let receivedFirstChunk = false;
 
+    const gradeContext = [
+      studentStage,
+      studentGrade,
+    ].filter(Boolean).join(' - ') || 'غير محدد';
+
+    const curriculumContext = studentCurriculum;
+
     try {
       responseText = await askAITutor(
         content,
         {
           name: studentName,
-          grade: currentActiveLesson?.lesson_title || 'الثانوي',
-          weakTopics: dbProgress.map((p) => p.subject),
+          grade: gradeContext,
+          weakTopics: dbProgress.map((progress) => progress.subject),
         },
         (chunk) => {
           if (currentRequestId !== requestIdRef.current) return;
@@ -333,7 +440,7 @@ export function TeacherChat({
 
       if (currentRequestId !== requestIdRef.current) return;
 
-      // Keep the final, complete answer exactly as returned by the stream.
+      // Keep the final answer exactly as returned by the AI helper.
       setMessages((currentMessages) =>
         currentMessages.map((message) =>
           message.id === messageId
@@ -343,6 +450,7 @@ export function TeacherChat({
       );
     } catch (error) {
       console.warn('AI call error:', error);
+
       responseText =
         `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! ` +
         'حصلت مشكلة أثناء تجهيز الإجابة. جرّب تبعت سؤالك تاني بعد قليل.';
@@ -363,7 +471,6 @@ export function TeacherChat({
     setTyping(false);
     setDrawing(true);
 
-    // Phase 1 streams the text. Audio still starts after the full answer is ready.
     if (useVoice && responseText.trim()) {
       try {
         await playTutorAudio(responseText);
@@ -375,11 +482,14 @@ export function TeacherChat({
     if (currentRequestId === requestIdRef.current) {
       setDrawing(false);
     }
+
+    // Keep curriculumContext available for curriculum-aware prompts later.
+    void curriculumContext;
   };
 
   const suggestedQuestions = useMemo(() => {
     return SMART_QUESTIONS
-      .filter((q) => q.subject === activeSubject)
+      .filter((question) => question.subject === activeSubject)
       .slice(0, 3);
   }, [activeSubject]);
 
@@ -431,7 +541,17 @@ export function TeacherChat({
             </button>
           </div>
         </div>
-                <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
+
+        {studentLoadError && (
+          <div
+            role="status"
+            className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs leading-relaxed text-amber-300"
+          >
+            {studentLoadError}
+          </div>
+        )}
+
+        <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {subjectBarOpen ? (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
@@ -490,8 +610,8 @@ export function TeacherChat({
           ref={scrollRef}
           className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0"
         >
-          {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} />
           ))}
 
           {typing && (
@@ -535,13 +655,13 @@ export function TeacherChat({
             </p>
 
             <div className="flex flex-wrap gap-2">
-              {suggestedQuestions.map((q) => (
+              {suggestedQuestions.map((question) => (
                 <button
-                  key={q.question}
-                  onClick={() => send(q.question)}
+                  key={question.question}
+                  onClick={() => void send(question.question)}
                   className="rounded-lg border border-[#2a2a2a] bg-[#1c1c1c] px-3 py-1.5 text-xs text-neutral-300 hover:text-white"
                 >
-                  {q.question}
+                  {question.question}
                 </button>
               ))}
             </div>
@@ -552,10 +672,10 @@ export function TeacherChat({
           <div className="flex items-center gap-2">
             <input
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
                   void send();
                 }
               }}
@@ -592,9 +712,35 @@ export function TeacherChat({
             </button>
           </div>
 
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
+          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
             <p className="text-xs font-bold text-emerald-400">
               {studentCurriculum}
+            </p>
+
+            {studentStage && (
+              <p className="text-xs text-neutral-300">
+                المرحلة: {studentStage}
+              </p>
+            )}
+
+            {studentGrade && (
+              <p className="text-xs text-neutral-300">
+                الصف: {studentGrade}
+              </p>
+            )}
+
+            {currentActiveLesson && (
+              <p className="text-xs text-neutral-400">
+                الدرس الحالي: {currentActiveLesson.lesson_title}
+              </p>
+            )}
+
+            <p className="text-xs text-neutral-500">
+              عدد المواد المتاحة: {availableSubjects.length}
+            </p>
+
+            <p className="text-xs text-neutral-500">
+              عدد مواعيد المذاكرة: {dbSchedule.length}
             </p>
           </div>
         </div>

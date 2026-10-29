@@ -1,13 +1,27 @@
+
 import { useState, useEffect } from 'react';
 import {
-  ArrowLeft, GraduationCap, Shield, Globe,
-  ChevronLeft, Check, Sparkles, Loader2, User,
-  Users, ArrowRight, Zap, MessageCircle,
+  ArrowLeft,
+  GraduationCap,
+  Globe,
+  ChevronLeft,
+  Sparkles,
+  Loader2,
+  Users,
+  ArrowRight,
+  Zap,
+  MessageCircle,
 } from 'lucide-react';
 import type { Role } from '@/types';
 import { useLang } from '@/lib/i18n';
-import { fetchCurricula, createStudent, sendWhatsAppMessagePaced, type CurriculumRow } from '@/lib/db';
-import { supabase } from '@/lib/supabase';
+import {
+  fetchCurricula,
+  fetchCurriculumGrades,
+  createStudent,
+  sendWhatsAppMessagePaced,
+  type CurriculumRow,
+  type CurriculumGradeRow,
+} from '@/lib/db';
 import { Logo } from '@/components/Logo';
 
 interface SmartPortalProps {
@@ -19,16 +33,16 @@ type Step = 'welcome' | 'student-onboard' | 'parent-onboard';
 
 export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   const { t, lang, setLang } = useLang();
+
   const [step, setStep] = useState<Step>('welcome');
   const [curricula, setCurricula] = useState<CurriculumRow[]>([]);
-
-  useEffect(() => {
-    fetchCurricula().then(setCurricula);
-  }, []);
+  const [curriculumGrades, setCurriculumGrades] = useState<CurriculumGradeRow[]>([]);
+  const [loadingCurricula, setLoadingCurricula] = useState(false);
+  const [loadingGrades, setLoadingGrades] = useState(false);
 
   const [studentName, setStudentName] = useState('');
-  const [studentStage, setStudentStage] = useState<'primary' | 'preparatory' | 'secondary'>('secondary');
-  const [studentGrade, setStudentGrade] = useState('secondary-1');
+  const [studentStage, setStudentStage] = useState('');
+  const [studentGrade, setStudentGrade] = useState('');
   const [studentPhone, setStudentPhone] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
   const [parentName, setParentName] = useState('');
@@ -39,109 +53,261 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const gradeOptions = studentStage === 'primary'
-    ? Array.from({ length: 6 }, (_, i) => ({ value: `primary-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث','الرابع','الخامس','السادس'][i]} الابتدائي`, en: `Grade ${i + 1} Primary` }))
-    : studentStage === 'preparatory'
-      ? Array.from({ length: 3 }, (_, i) => ({ value: `preparatory-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث'][i]} الإعدادي`, en: `Grade ${i + 1} Preparatory` }))
-      : Array.from({ length: 3 }, (_, i) => ({ value: `secondary-${i + 1}`, ar: `الصف ${['الأول','الثاني','الثالث'][i]} الثانوي`, en: `Grade ${i + 1} Secondary` }));
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurricula() {
+      setLoadingCurricula(true);
+
+      try {
+        const rows = await fetchCurricula();
+
+        if (!cancelled) {
+          setCurricula(rows);
+        }
+      } catch (err) {
+        console.error('Failed to load curricula:', err);
+
+        if (!cancelled) {
+          setError(
+            lang === 'ar'
+              ? 'حصل خطأ أثناء تحميل المناهج الدراسية.'
+              : 'Failed to load curricula.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCurricula(false);
+        }
+      }
+    }
+
+    void loadCurricula();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
+  const stageOptions = Array.from(
+    new Map(
+      curriculumGrades.map((grade) => [
+        grade.stage,
+        {
+          value: grade.stage,
+          ar: getStageLabel(grade.stage, 'ar'),
+          en: getStageLabel(grade.stage, 'en'),
+        },
+      ])
+    ).values()
+  );
+
+  const gradeOptions = curriculumGrades.filter(
+    (grade) => grade.stage === studentStage
+  );
 
   useEffect(() => {
-    if (!gradeOptions.some((grade) => grade.value === studentGrade)) {
-      setStudentGrade(gradeOptions[0].value);
+    const curriculumId = selectedCurriculumId;
+
+    if (curriculumId === null || curriculumId === '') {
+      setCurriculumGrades([]);
+      setStudentStage('');
+      setStudentGrade('');
+      setLoadingGrades(false);
+      return;
     }
-  }, [studentStage]);
+
+    let cancelled = false;
+
+    async function loadGrades(curriculumId: string) {
+      setLoadingGrades(true);
+      setCurriculumGrades([]);
+      setStudentStage('');
+      setStudentGrade('');
+      setError('');
+
+      try {
+        const grades = await fetchCurriculumGrades(curriculumId);
+
+        if (cancelled) {
+          return;
+        }
+
+        setCurriculumGrades(grades);
+
+        if (grades.length > 0) {
+          setStudentStage(grades[0].stage);
+          setStudentGrade(grades[0].grade_code);
+        } else {
+          setError(
+            lang === 'ar'
+              ? 'المنهج ده مفيش له صفوف دراسية مسجلة حاليًا.'
+              : 'No grades are configured for this curriculum.'
+          );
+        }
+      } catch (err) {
+        console.error('Failed to load curriculum grades:', err);
+
+        if (!cancelled) {
+          setCurriculumGrades([]);
+          setStudentStage('');
+          setStudentGrade('');
+          setError(
+            lang === 'ar'
+              ? 'حصل خطأ أثناء تحميل الصفوف الدراسية.'
+              : 'Failed to load curriculum grades.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingGrades(false);
+        }
+      }
+    }
+
+    void loadGrades(curriculumId);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCurriculumId, lang]);
+
+  useEffect(() => {
+    const validGrades = curriculumGrades.filter(
+      (grade) => grade.stage === studentStage
+    );
+
+    if (!validGrades.some((grade) => grade.grade_code === studentGrade)) {
+      setStudentGrade(validGrades[0]?.grade_code ?? '');
+    }
+  }, [studentStage, curriculumGrades, studentGrade]);
 
   const handleStudentSubmit = async () => {
     setError('');
+
+    const curriculumId = selectedCurriculumId;
+
+    if (!curriculumId) {
+      setError(
+        lang === 'ar'
+          ? 'من فضلك اختار المنهج الدراسي الأول.'
+          : 'Please select a curriculum first.'
+      );
+      return;
+    }
+
     if (!studentName.trim() || !parentPhone.trim()) {
       setError(t.nameRequired);
       return;
     }
-    setSubmitting(true);
-    const selectedGrade = gradeOptions.find((grade) => grade.value === studentGrade);
-    const gradeLabel = selectedGrade ? (lang === 'ar' ? selectedGrade.ar : selectedGrade.en) : studentGrade;
 
-    // 1. تسجيل الطالب في جدول سابيز
-    await createStudent({
-      name: studentName,
-      grade: gradeLabel,
-      school_id: null,
-      school_name: '',
-      curriculum_id: selectedCurriculumId,
-      curriculum_name: selectedCurriculumName,
-      parent_name: parentName,
-      parent_phone: parentPhone,
-      parent_email: parentEmail,
-      student_phone: studentPhone,
-      student_email: studentEmail,
-    });
-
-    // 2. الاستعلام المباشر لجلب الـ ID الحقيقي للطالب المسجل حالا من السيرفر
-    let realStudentId = '';
-    try {
-      const { data: foundStudent, error: searchErr } = await supabase
-        .from('students')
-        .select('id')
-        .eq('parent_phone', parentPhone)
-        .eq('name', studentName)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (foundStudent && !searchErr) {
-        realStudentId = foundStudent.id;
-        localStorage.setItem('current_student_id', realStudentId);
-      }
-    } catch (err) {
-      console.error('Error fetching real student id:', err);
-    }
-
-    if (!realStudentId) {
-      setSubmitting(false);
-      setError(t.registrationError);
+    if (loadingGrades) {
+      setError(
+        lang === 'ar'
+          ? 'استنى لحد ما الصفوف الدراسية تتحمّل.'
+          : 'Please wait for the available grades to load.'
+      );
       return;
     }
 
-    // 3. إرسال رسائل الواتساب بشكل آمن (Non-blocking)
-    try {
-      const companyNumber = '+20 100 123 4567';
-      if (parentPhone) {
-        await sendWhatsAppMessagePaced({
-          student_id: realStudentId,
-          student_name: studentName,
-          recipient: 'parent',
-          recipient_phone: parentPhone,
-          recipient_name: parentName || t.parent,
-          recipient_email: parentEmail,
-          content: lang === 'ar'
-            ? `أهلاً بك في The Primer! ابنك ${studentName} تم تسجيله بنجاح. مدرّسه الشخصي جاهز 24/7. المنهج: ${selectedCurriculumName || 'سيتم تحديده'}.`
-            : `Welcome to The Primer! Your child ${studentName} has been registered. Their personal tutor is ready 24/7. Curriculum: ${selectedCurriculumName || 'TBD'}.`,
-          trigger_type: 'welcome',
-          company_sending_number: companyNumber,
-        });
-      }
-      if (studentPhone) {
-        await sendWhatsAppMessagePaced({
-          student_id: realStudentId,
-          student_name: studentName,
-          recipient: 'student',
-          recipient_phone: studentPhone,
-          recipient_name: studentName,
-          recipient_email: studentEmail,
-          content: lang === 'ar'
-            ? `أهلاً ${studentName}! مدرّسك الشخصي في The Primer جاهز. اسأل أي سؤال في أي وقت — أنا هنا 24/7.`
-            : `Hi ${studentName}! Your personal tutor at The Primer is ready. Ask any question anytime — I'm here 24/7.`,
-          trigger_type: 'welcome',
-          company_sending_number: companyNumber,
-        });
-      }
-    } catch (whatsappErr) {
-      console.error('WhatsApp notification skipped/failed safely:', whatsappErr);
+    const selectedGrade = curriculumGrades.find(
+      (grade) =>
+        grade.stage === studentStage &&
+        grade.grade_code === studentGrade
+    );
+
+    if (!selectedGrade) {
+      setError(
+        lang === 'ar'
+          ? 'مفيش صف دراسي صالح للاختيار في المنهج ده. راجع الصفوف المسجلة في قاعدة البيانات.'
+          : 'No valid grade is available for this curriculum. Check the grades in the database.'
+      );
+      return;
     }
 
-    // 4. فتح حساب الطالب الفعلي في السيستم بالمعرّف الحقيقي حصرياً
-    setSubmitting(false);
-    onChoose('student', realStudentId);
+    setSubmitting(true);
+
+    const gradeLabel =
+      lang === 'ar'
+        ? selectedGrade.grade_name_ar || selectedGrade.grade_name
+        : selectedGrade.grade_name || selectedGrade.grade_name_ar;
+
+    try {
+      const createdStudent = await createStudent({
+        name: studentName.trim(),
+        grade: gradeLabel,
+        stage: selectedGrade.stage,
+        grade_code: selectedGrade.grade_code,
+        school_id: null,
+        school_name: '',
+        curriculum_id: curriculumId,
+        curriculum_name: selectedCurriculumName,
+        parent_name: parentName.trim(),
+        parent_phone: parentPhone.trim(),
+        parent_email: parentEmail.trim(),
+        student_phone: studentPhone.trim(),
+        student_email: studentEmail.trim(),
+      });
+
+      if (!createdStudent?.id) {
+        setError(t.registrationError);
+        return;
+      }
+
+      const realStudentId = createdStudent.id;
+
+      localStorage.setItem('current_student_id', realStudentId);
+
+      try {
+        const companyNumber = '+20 100 123 4567';
+
+        if (parentPhone.trim()) {
+          await sendWhatsAppMessagePaced({
+            student_id: realStudentId,
+            student_name: studentName.trim(),
+            recipient: 'parent',
+            recipient_phone: parentPhone.trim(),
+            recipient_name: parentName.trim() || t.parent,
+            recipient_email: parentEmail.trim(),
+            content:
+              lang === 'ar'
+                ? `أهلاً بك في The Primer! ابنك ${studentName.trim()} تم تسجيله بنجاح. مدرّسه الشخصي جاهز 24/7. المنهج: ${selectedCurriculumName || 'سيتم تحديده'}، الصف: ${gradeLabel}.`
+                : `Welcome to The Primer! Your child ${studentName.trim()} has been registered. Their personal tutor is ready 24/7. Curriculum: ${selectedCurriculumName || 'TBD'}, grade: ${gradeLabel}.`,
+            trigger_type: 'welcome',
+            company_sending_number: companyNumber,
+          });
+        }
+
+        if (studentPhone.trim()) {
+          await sendWhatsAppMessagePaced({
+            student_id: realStudentId,
+            student_name: studentName.trim(),
+            recipient: 'student',
+            recipient_phone: studentPhone.trim(),
+            recipient_name: studentName.trim(),
+            recipient_email: studentEmail.trim(),
+            content:
+              lang === 'ar'
+                ? `أهلاً ${studentName.trim()}! مدرّسك الشخصي في The Primer جاهز. اسأل أي سؤال في أي وقت — أنا هنا 24/7.`
+                : `Hi ${studentName.trim()}! Your personal tutor at The Primer is ready. Ask any question anytime — I'm here 24/7.`,
+            trigger_type: 'welcome',
+            company_sending_number: companyNumber,
+          });
+        }
+      } catch (whatsappErr) {
+        console.error(
+          'WhatsApp notification skipped/failed safely:',
+          whatsappErr
+        );
+      }
+
+      onChoose('student', realStudentId);
+    } catch (registrationErr) {
+      console.error('Student registration failed:', registrationErr);
+      setError(t.registrationError);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -173,14 +339,14 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                 <p className="text-sm text-neutral-200 leading-relaxed">
                   {lang === 'ar'
                     ? 'أهلاً بيك! أنا The Primer — مدرّسك الشخصي الذكي. عشان أقدر أساعدك صح، محتاج أعرف إنت مين. اختار اللي يناسبك تحت.'
-                    : 'Welcome! I\'m The Primer — your personal AI tutor. To help you the right way, I need to know who you are. Choose what fits you below.'}
+                    : "Welcome! I'm The Primer — your personal AI tutor. To help you the right way, I need to know who you are. Choose what fits you below."}
                 </p>
               </div>
             </div>
 
             <div className="space-y-3 pt-2">
               <button
-                onClick={() => { setStep('student-onboard'); }}
+                onClick={() => setStep('student-onboard')}
                 className="group flex w-full items-center gap-4 rounded-2xl border border-[#2a2a2a] bg-gradient-to-l from-[#141414] to-[#0f0f0f] p-5 text-right transition hover:border-white hover:from-[#1a1a1a]"
               >
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-800 text-white transition group-hover:bg-white group-hover:text-black">
@@ -190,7 +356,11 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                   <h3 className="text-base font-bold text-white">{t.newStudent}</h3>
                   <p className="text-xs text-neutral-400 mt-1">{t.newStudentDesc}</p>
                 </div>
-                {lang === 'ar' ? <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" /> : <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />}
+                {lang === 'ar' ? (
+                  <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" />
+                ) : (
+                  <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />
+                )}
               </button>
 
               <button
@@ -204,11 +374,18 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                   <h3 className="text-base font-bold text-white">{t.parent}</h3>
                   <p className="text-xs text-neutral-400 mt-1">{t.parentDesc}</p>
                 </div>
-                {lang === 'ar' ? <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" /> : <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />}
+                {lang === 'ar' ? (
+                  <ArrowLeft size={20} className="text-neutral-600 group-hover:text-white transition" />
+                ) : (
+                  <ArrowRight size={20} className="text-neutral-600 group-hover:text-white transition" />
+                )}
               </button>
             </div>
 
-            <button onClick={onBack} className="mx-auto flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition pt-2">
+            <button
+              onClick={onBack}
+              className="mx-auto flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition pt-2"
+            >
               <Globe size={16} /> {t.backToHome}
             </button>
           </div>
@@ -226,7 +403,7 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                   <p className="text-sm text-neutral-200">
                     {lang === 'ar'
                       ? 'تمام! عشان أقدر أذاكر معاك صح، محتاج أعرف شوية حاجات عنك. مفيش حاجة هتاخد وقت.'
-                      : 'Great! To study with you properly, I need to know a few things about you. This won\'t take long.'}
+                      : "Great! To study with you properly, I need to know a few things about you. This won't take long."}
                   </p>
                 </div>
               </div>
@@ -235,60 +412,169 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
               <div className="mb-4">
                 <p className="text-xs text-neutral-400 mb-2">{t.selectCurriculum}</p>
                 <div className="flex flex-wrap gap-2">
-                  {curricula.map((c) => (
+                  {curricula.map((curriculum) => (
                     <button
-                      key={c.id}
-                      onClick={() => { setSelectedCurriculumId(c.id); setSelectedCurriculumName(c.name); }}
+                      key={curriculum.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCurriculumId(curriculum.id);
+                        setSelectedCurriculumName(curriculum.name_ar || curriculum.name);
+                        setError('');
+                      }}
                       className={`rounded-lg border px-3 py-2 text-xs transition ${
-                        selectedCurriculumId === c.id ? 'border-white bg-[#1a1a1a] text-white' : 'border-[#2a2a2a] bg-[#0f0f0f] text-neutral-400 hover:border-[#444]'
+                        selectedCurriculumId === curriculum.id
+                          ? 'border-white bg-[#1a1a1a] text-white'
+                          : 'border-[#2a2a2a] bg-[#0f0f0f] text-neutral-400 hover:border-[#444]'
                       }`}
                     >
-                      {lang === 'ar' ? (c.name_ar || c.name) : c.name}
+                      {lang === 'ar'
+                        ? curriculum.name_ar || curriculum.name
+                        : curriculum.name}
                     </button>
                   ))}
-                  {curricula.length === 0 && (
+
+                  {loadingCurricula && (
                     <p className="text-xs text-neutral-500">{t.loading}</p>
+                  )}
+
+                  {!loadingCurricula && curricula.length === 0 && (
+                    <p className="text-xs text-neutral-500">
+                      {lang === 'ar'
+                        ? 'مفيش مناهج متاحة حاليًا.'
+                        : 'No curricula are currently available.'}
+                    </p>
                   )}
                 </div>
               </div>
 
               {/* Form fields */}
               <div className="space-y-3">
-                <FormField label={t.studentName} value={studentName} onChange={setStudentName} placeholder={lang === 'ar' ? 'أحمد محمد' : 'Ahmed Mohamed'} />
+                <FormField
+                  label={t.studentName}
+                  value={studentName}
+                  onChange={setStudentName}
+                  placeholder={lang === 'ar' ? 'أحمد محمد' : 'Ahmed Mohamed'}
+                />
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-neutral-400 mb-1.5 block">{lang === 'ar' ? 'المرحلة الدراسية' : 'School stage'}</label>
+                    <label className="text-xs text-neutral-400 mb-1.5 block">
+                      {lang === 'ar' ? 'المرحلة الدراسية' : 'School stage'}
+                    </label>
                     <select
                       value={studentStage}
-                      onChange={(e) => setStudentStage(e.target.value as 'primary' | 'preparatory' | 'secondary')}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555]"
+                      onChange={(event) => {
+                        setStudentStage(event.target.value);
+                        setError('');
+                      }}
+                      disabled={
+                        !selectedCurriculumId ||
+                        loadingGrades ||
+                        stageOptions.length === 0
+                      }
+                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555] disabled:opacity-50"
                     >
-                      <option value="primary">{lang === 'ar' ? 'ابتدائي' : 'Primary'}</option>
-                      <option value="preparatory">{lang === 'ar' ? 'إعدادي' : 'Preparatory'}</option>
-                      <option value="secondary">{lang === 'ar' ? 'ثانوي' : 'Secondary'}</option>
+                      {stageOptions.length === 0 && (
+                        <option value="">
+                          {loadingGrades
+                            ? lang === 'ar'
+                              ? 'جاري تحميل المراحل...'
+                              : 'Loading stages...'
+                            : lang === 'ar'
+                              ? 'اختار المنهج الأول'
+                              : 'Select curriculum first'}
+                        </option>
+                      )}
+
+                      {stageOptions.map((stage) => (
+                        <option key={stage.value} value={stage.value}>
+                          {lang === 'ar' ? stage.ar : stage.en}
+                        </option>
+                      ))}
                     </select>
                   </div>
+
                   <div>
-                    <label className="text-xs text-neutral-400 mb-1.5 block">{t.grade}</label>
+                    <label className="text-xs text-neutral-400 mb-1.5 block">
+                      {t.grade}
+                    </label>
                     <select
                       value={studentGrade}
-                      onChange={(e) => setStudentGrade(e.target.value)}
-                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555]"
+                      onChange={(event) => {
+                        setStudentGrade(event.target.value);
+                        setError('');
+                      }}
+                      disabled={
+                        !studentStage ||
+                        loadingGrades ||
+                        gradeOptions.length === 0
+                      }
+                      className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#555] disabled:opacity-50"
                     >
-                      {gradeOptions.map((grade) => <option key={grade.value} value={grade.value}>{lang === 'ar' ? grade.ar : grade.en}</option>)}
+                      {loadingGrades && (
+                        <option value="">
+                          {lang === 'ar'
+                            ? 'جاري تحميل الصفوف...'
+                            : 'Loading grades...'}
+                        </option>
+                      )}
+
+                      {!loadingGrades && gradeOptions.length === 0 && (
+                        <option value="">
+                          {lang === 'ar'
+                            ? 'لا توجد صفوف متاحة'
+                            : 'No grades available'}
+                        </option>
+                      )}
+
+                      {gradeOptions.map((grade) => (
+                        <option key={grade.id} value={grade.grade_code}>
+                          {lang === 'ar'
+                            ? grade.grade_name_ar || grade.grade_name
+                            : grade.grade_name || grade.grade_name_ar}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
-                  <FormField label={t.studentPhone} value={studentPhone} onChange={setStudentPhone} placeholder="010xxxxxxxx" />
-                  <FormField label={t.studentEmail} value={studentEmail} onChange={setStudentEmail} placeholder="student@email.com" />
+                  <FormField
+                    label={t.studentPhone}
+                    value={studentPhone}
+                    onChange={setStudentPhone}
+                    placeholder="010xxxxxxxx"
+                  />
+                  <FormField
+                    label={t.studentEmail}
+                    value={studentEmail}
+                    onChange={setStudentEmail}
+                    placeholder="student@email.com"
+                  />
                 </div>
+
                 <div className="pt-2 border-t border-[#2a2a2a]">
                   <p className="text-xs text-neutral-500 mb-3">{t.parentInfo}</p>
-                  <FormField label={t.parentName} value={parentName} onChange={setParentName} placeholder={lang === 'ar' ? 'محمد عبد الرحمن' : 'Mohamed Abdelrahman'} />
+                  <FormField
+                    label={t.parentName}
+                    value={parentName}
+                    onChange={setParentName}
+                    placeholder={lang === 'ar' ? 'محمد عبد الرحمن' : 'Mohamed Abdelrahman'}
+                  />
                   <div className="grid grid-cols-2 gap-3 mt-3">
-                    <FormField label={t.parentPhone} value={parentPhone} onChange={setParentPhone} placeholder="010xxxxxxxx" required />
-                    <FormField label={t.parentEmail} value={parentEmail} onChange={setParentEmail} placeholder="parent@email.com" />
+                    <FormField
+                      label={t.parentPhone}
+                      value={parentPhone}
+                      onChange={setParentPhone}
+                      placeholder="010xxxxxxxx"
+                      required
+                    />
+                    <FormField
+                      label={t.parentEmail}
+                      value={parentEmail}
+                      onChange={setParentEmail}
+                      placeholder="parent@email.com"
+                    />
                   </div>
                 </div>
               </div>
@@ -298,11 +584,23 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                   <div className="flex items-center gap-2 mb-1">
                     <MessageCircle size={14} className="text-green-400" />
                     <span className="text-xs font-medium text-green-300">
-                      {lang === 'ar' ? 'هنرسل رسالة واتساب ترحيب أوتوماتيك:' : 'Auto WhatsApp welcome will be sent to:'}
+                      {lang === 'ar'
+                        ? 'هنرسل رسالة واتساب ترحيب أوتوماتيك:'
+                        : 'Auto WhatsApp welcome will be sent to:'}
                     </span>
                   </div>
-                  {parentPhone && <p className="text-[10px] text-neutral-400">{t.parent}: {parentPhone} {parentEmail && `· ${parentEmail}`}</p>}
-                  {studentPhone && <p className="text-[10px] text-neutral-400">{t.newStudent}: {studentPhone} {studentEmail && `· ${studentEmail}`}</p>}
+
+                  {parentPhone && (
+                    <p className="text-[10px] text-neutral-400">
+                      {t.parent}: {parentPhone} {parentEmail && `· ${parentEmail}`}
+                    </p>
+                  )}
+
+                  {studentPhone && (
+                    <p className="text-[10px] text-neutral-400">
+                      {t.newStudent}: {studentPhone} {studentEmail && `· ${studentEmail}`}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -314,13 +612,22 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
 
               <button
                 onClick={handleStudentSubmit}
-                disabled={submitting}
+                disabled={
+                  submitting ||
+                  loadingGrades ||
+                  loadingCurricula
+                }
                 className="btn-primary w-full mt-5 disabled:opacity-50"
               >
-                {submitting ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                {submitting ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Zap size={16} />
+                )}
                 {submitting ? t.registering : t.startStudying}
               </button>
             </div>
+
             <BackButton onClick={() => setStep('welcome')} label={t.back} />
           </div>
         )}
@@ -337,15 +644,24 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
                   <p className="text-sm text-neutral-200">
                     {lang === 'ar'
                       ? 'أهلاً بيك! تقدر تتابع تقدّم ابنك وتشوف تقاريره مباشرة. ادخل دلوقتي.'
-                      : 'Welcome! You can track your child\'s progress and view their reports directly. Enter now.'}
+                      : "Welcome! You can track your child's progress and view their reports directly. Enter now."}
                   </p>
                 </div>
               </div>
-              <button onClick={() => onChoose('parent')} className="btn-primary w-full text-xs">
+
+              <button
+                onClick={() => onChoose('parent')}
+                className="btn-primary w-full text-xs"
+              >
                 {t.enterDirectly}
-                {lang === 'ar' ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                {lang === 'ar' ? (
+                  <ArrowLeft size={14} />
+                ) : (
+                  <ArrowRight size={14} />
+                )}
               </button>
             </div>
+
             <BackButton onClick={() => setStep('welcome')} label={t.back} />
           </div>
         )}
@@ -354,10 +670,49 @@ export function SmartPortal({ onChoose, onBack }: SmartPortalProps) {
   );
 }
 
-function FormField({ label, value, onChange, placeholder, required }: {
+function getStageLabel(
+  stage: string,
+  language: 'ar' | 'en'
+): string {
+  const normalized = stage.trim().toLowerCase();
+
+  const labels: Record<string, { ar: string; en: string }> = {
+    primary: { ar: 'ابتدائي', en: 'Primary' },
+    preparatory: { ar: 'إعدادي', en: 'Preparatory' },
+    secondary: { ar: 'ثانوي', en: 'Secondary' },
+    kindergarten: { ar: 'رياض أطفال', en: 'Kindergarten' },
+    kg: { ar: 'رياض أطفال', en: 'Kindergarten' },
+    early_years: { ar: 'السنوات المبكرة', en: 'Early Years' },
+    lower_secondary: { ar: 'إعدادي', en: 'Lower Secondary' },
+    middle: { ar: 'متوسط', en: 'Middle School' },
+    middle_school: { ar: 'متوسط', en: 'Middle School' },
+    upper_secondary: { ar: 'ثانوي', en: 'Upper Secondary' },
+    pyp: { ar: 'المرحلة الابتدائية (PYP)', en: 'Primary Years (PYP)' },
+    myp: { ar: 'المرحلة المتوسطة (MYP)', en: 'Middle Years (MYP)' },
+    dp: { ar: 'الدبلومة (DP)', en: 'Diploma Programme (DP)' },
+  };
+
+  if (labels[normalized]) {
+    return labels[normalized][language];
+  }
+
+  const readable = normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+
+  return readable;
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
   placeholder?: string;
   required?: boolean;
 }) {
@@ -368,7 +723,7 @@ function FormField({ label, value, onChange, placeholder, required }: {
       </label>
       <input
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className="w-full rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#555]"
       />
@@ -376,9 +731,18 @@ function FormField({ label, value, onChange, placeholder, required }: {
   );
 }
 
-function BackButton({ onClick, label }: { onClick: () => void; label: string }) {
+function BackButton({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
   return (
-    <button onClick={onClick} className="mx-auto flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition">
+    <button
+      onClick={onClick}
+      className="mx-auto flex items-center gap-2 text-sm text-neutral-400 hover:text-white transition"
+    >
       <ChevronLeft size={16} /> {label}
     </button>
   );
