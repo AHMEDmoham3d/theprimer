@@ -60,16 +60,18 @@ export interface StudentRow {
 export interface CurriculumRow {
   id: string;
   name: string;
-  name_ar: string;
-  school_type: 'international' | 'national' | 'private';
-  description: string;
+  name_ar: string | null;
+  grade: string | null;
+  stage: string | null;
+  description: string | null;
+  created_at?: string;
 }
 
 export interface CurriculumSubjectRow {
   id: string;
   curriculum_id: string;
-  stage?: string;
-  grade?: string;
+  stage: string;
+  grade: string;
   subject_key: string;
   subject_name: string;
   subject_name_ar: string;
@@ -92,17 +94,21 @@ export interface CurriculumUnitRow {
   id: string;
   subject_id: string;
   name: string;
-  name_ar: string;
+  name_ar: string | null;
   sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CurriculumLessonRow {
   id: string;
   unit_id: string;
   name: string;
-  name_ar: string;
+  name_ar: string | null;
   content: string;
   sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WhatsAppTemplateRow {
@@ -288,143 +294,135 @@ export async function createStudent(input: {
 }
 
 export async function fetchCurricula(): Promise<CurriculumRow[]> {
-  try {
-    const { data, error } = await supabase
-      .from('curricula')
-      .select('*')
-      .order('name');
-
-    if (error) {
-      console.warn('fetchCurricula warning:', error.message);
-      return [];
-    }
-
-    return (data || []) as CurriculumRow[];
-  } catch {
-    return [];
-  }
+  const { data, error } = await supabase.from('curricula').select('*').order('name');
+  if (error) throw error;
+  return (data || []) as CurriculumRow[];
 }
 
-export async function fetchCurriculumGrades(
-  curriculumId: string
-): Promise<CurriculumGradeRow[]> {
-  try {
-    const { data, error } = await supabase
-      .from('curriculum_grades')
-      .select('*')
-      .eq('curriculum_id', curriculumId)
-      .eq('is_active', true)
-      .order('sort_order');
-
-    if (error) {
-      console.warn('fetchCurriculumGrades warning:', error.message);
-      return [];
-    }
-
-    return (data || []) as CurriculumGradeRow[];
-  } catch {
-    return [];
-  }
+export async function createCurriculum(input: {
+  name: string; name_ar?: string | null; grade?: string | null;
+  stage?: string | null; description?: string | null;
+}): Promise<CurriculumRow> {
+  const { data, error } = await supabase.from('curricula').insert({
+    name: input.name.trim(), name_ar: input.name_ar?.trim() || null,
+    grade: input.grade?.trim() || null, stage: input.stage?.trim() || null,
+    description: input.description?.trim() || null,
+  }).select('*').single();
+  if (error) throw error;
+  return data as CurriculumRow;
 }
 
-export async function updateStudentCurriculum(
-  studentId: string,
-  curriculumId: string,
-  curriculumName: string
-): Promise<boolean> {
-  try {
-    const { error } = await supabase
-      .from('students')
-      .update({
-        curriculum_id: curriculumId,
-        curriculum_name: curriculumName,
-      })
-      .eq('id', studentId);
-
-    if (error) {
-      console.warn('updateStudentCurriculum warning:', error.message);
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
+export async function updateCurriculum(id: string, input: Partial<Omit<CurriculumRow, 'id' | 'created_at'>>): Promise<CurriculumRow> {
+  const { data, error } = await supabase.from('curricula').update(input).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CurriculumRow;
 }
 
-export async function fetchCurriculumSubjects(
-  curriculumId: string,
-  stage?: string,
-  gradeCode?: string
-): Promise<CurriculumSubjectRow[]> {
-  try {
-    let query = supabase
-      .from('curriculum_grade_subjects')
-      .select('*')
-      .eq('curriculum_id', curriculumId)
-      .eq('is_active', true);
-
-    if (stage) {
-      query = query.eq('stage', stage);
-    }
-
-    if (gradeCode) {
-      query = query.eq('grade', gradeCode);
-    }
-
-    const { data, error } = await query.order('sort_order');
-
-    if (error) {
-      console.warn('fetchCurriculumSubjects warning:', error.message);
-      return [];
-    }
-
-    return (data || []) as CurriculumSubjectRow[];
-  } catch {
-    return [];
-  }
+export async function deleteCurriculum(id: string): Promise<void> {
+  const { error } = await supabase.from('curricula').delete().eq('id', id);
+  if (error) throw error;
 }
 
-export async function fetchUnits(
-  subjectId: string
-): Promise<CurriculumUnitRow[]> {
-  try {
-    const { data, error } = await supabase
-      .from('curriculum_units')
-      .select('*')
-      .eq('subject_id', subjectId)
-      .order('sort_order');
-
-    if (error) {
-      console.warn('fetchUnits warning:', error.message);
-      return [];
-    }
-
-    return (data || []) as CurriculumUnitRow[];
-  } catch {
-    return [];
-  }
+export async function fetchCurriculumGrades(curriculumId: string): Promise<CurriculumGradeRow[]> {
+  const { data, error } = await supabase.from('curriculum_grades').select('*')
+    .eq('curriculum_id', curriculumId).eq('is_active', true).order('sort_order');
+  if (error) throw error;
+  return (data || []) as CurriculumGradeRow[];
 }
 
-export async function fetchLessons(
-  unitId: string
-): Promise<CurriculumLessonRow[]> {
-  try {
-    const { data, error } = await supabase
-      .from('curriculum_lessons')
-      .select('*')
-      .eq('unit_id', unitId)
-      .order('sort_order');
+export async function createCurriculumGrade(input: Omit<CurriculumGradeRow, 'id' | 'is_active'> & { is_active?: boolean }): Promise<CurriculumGradeRow> {
+  const { data, error } = await supabase.from('curriculum_grades').insert({ ...input, is_active: input.is_active ?? true }).select('*').single();
+  if (error) throw error;
+  return data as CurriculumGradeRow;
+}
 
-    if (error) {
-      console.warn('fetchLessons warning:', error.message);
-      return [];
-    }
+export async function updateCurriculumGrade(id: string, input: Partial<Omit<CurriculumGradeRow, 'id'>>): Promise<CurriculumGradeRow> {
+  const { data, error } = await supabase.from('curriculum_grades').update(input).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CurriculumGradeRow;
+}
 
-    return (data || []) as CurriculumLessonRow[];
-  } catch {
-    return [];
-  }
+export async function deleteCurriculumGrade(id: string): Promise<void> {
+  const { error } = await supabase.from('curriculum_grades').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateStudentCurriculum(studentId: string, curriculumId: string, curriculumName: string): Promise<boolean> {
+  const { error } = await supabase.from('students').update({ curriculum_id: curriculumId, curriculum_name: curriculumName }).eq('id', studentId);
+  if (error) { console.warn('updateStudentCurriculum warning:', error.message); return false; }
+  return true;
+}
+
+export async function fetchCurriculumSubjects(curriculumId: string, stage?: string, gradeCode?: string): Promise<CurriculumSubjectRow[]> {
+  let query = supabase.from('curriculum_grade_subjects').select('*').eq('curriculum_id', curriculumId).eq('is_active', true);
+  if (stage) query = query.eq('stage', stage);
+  if (gradeCode) query = query.eq('grade', gradeCode);
+  const { data, error } = await query.order('sort_order');
+  if (error) throw error;
+  return (data || []) as CurriculumSubjectRow[];
+}
+
+export async function createCurriculumSubject(input: Omit<CurriculumSubjectRow, 'id' | 'is_active'> & { is_active?: boolean }): Promise<CurriculumSubjectRow> {
+  const { data, error } = await supabase.from('curriculum_grade_subjects').insert({ ...input, is_active: input.is_active ?? true }).select('*').single();
+  if (error) throw error;
+  return data as CurriculumSubjectRow;
+}
+
+export async function updateCurriculumSubject(id: string, input: Partial<Omit<CurriculumSubjectRow, 'id'>>): Promise<CurriculumSubjectRow> {
+  const { data, error } = await supabase.from('curriculum_grade_subjects').update(input).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CurriculumSubjectRow;
+}
+
+export async function deleteCurriculumSubject(id: string): Promise<void> {
+  const { error } = await supabase.from('curriculum_grade_subjects').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function fetchUnits(subjectId: string): Promise<CurriculumUnitRow[]> {
+  const { data, error } = await supabase.from('curriculum_units').select('*').eq('subject_id', subjectId).order('sort_order');
+  if (error) throw error;
+  return (data || []) as CurriculumUnitRow[];
+}
+
+export async function createCurriculumUnit(input: Omit<CurriculumUnitRow, 'id' | 'created_at' | 'updated_at'>): Promise<CurriculumUnitRow> {
+  const { data, error } = await supabase.from('curriculum_units').insert(input).select('*').single();
+  if (error) throw error;
+  return data as CurriculumUnitRow;
+}
+
+export async function updateCurriculumUnit(id: string, input: Partial<Omit<CurriculumUnitRow, 'id'>>): Promise<CurriculumUnitRow> {
+  const { data, error } = await supabase.from('curriculum_units').update({ ...input, updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CurriculumUnitRow;
+}
+
+export async function deleteCurriculumUnit(id: string): Promise<void> {
+  const { error } = await supabase.from('curriculum_units').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function fetchLessons(unitId: string): Promise<CurriculumLessonRow[]> {
+  const { data, error } = await supabase.from('curriculum_lessons').select('*').eq('unit_id', unitId).order('sort_order');
+  if (error) throw error;
+  return (data || []) as CurriculumLessonRow[];
+}
+
+export async function createCurriculumLesson(input: Omit<CurriculumLessonRow, 'id' | 'created_at' | 'updated_at'>): Promise<CurriculumLessonRow> {
+  const { data, error } = await supabase.from('curriculum_lessons').insert(input).select('*').single();
+  if (error) throw error;
+  return data as CurriculumLessonRow;
+}
+
+export async function updateCurriculumLesson(id: string, input: Partial<Omit<CurriculumLessonRow, 'id'>>): Promise<CurriculumLessonRow> {
+  const { data, error } = await supabase.from('curriculum_lessons').update({ ...input, updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as CurriculumLessonRow;
+}
+
+export async function deleteCurriculumLesson(id: string): Promise<void> {
+  const { error } = await supabase.from('curriculum_lessons').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function fetchWhatsAppTemplates(): Promise<WhatsAppTemplateRow[]> {
