@@ -90,14 +90,23 @@ export interface CurriculumGradeRow {
   is_active: boolean;
 }
 
+export type CurriculumTerm = 'first' | 'second' | 'full_year';
+
 export interface CurriculumUnitRow {
   id: string;
   subject_id: string;
   name: string;
   name_ar: string | null;
   sort_order: number;
+  term: CurriculumTerm;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface CurriculumPublicationSettingsRow {
+  id: 'global';
+  current_term: 'first' | 'second';
+  updated_at: string;
 }
 
 export interface CurriculumLessonRow {
@@ -291,6 +300,26 @@ export async function createStudent(input: {
   } catch {
     return null;
   }
+}
+
+export async function fetchCurriculumPublicationSettings(): Promise<CurriculumPublicationSettingsRow> {
+  const { data, error } = await supabase
+    .from('curriculum_publication_settings')
+    .select('*')
+    .eq('id', 'global')
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    return {
+      id: 'global',
+      current_term: 'first',
+      updated_at: '',
+    };
+  }
+
+  return data as CurriculumPublicationSettingsRow;
 }
 
 export async function fetchCurricula(): Promise<CurriculumRow[]> {

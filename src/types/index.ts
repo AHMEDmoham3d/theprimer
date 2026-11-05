@@ -1,3 +1,4 @@
+
 export type Role = 'student' | 'teacher' | 'parent' | 'admin' | 'school';
 
 export type Subject =
@@ -7,7 +8,8 @@ export type Subject =
   | 'biology'
   | 'english'
   | 'history'
-  | 'geography';
+  | 'geography'
+  | (string & {});
 
 export type SessionStatus = 'scheduled' | 'live' | 'completed' | 'cancelled';
 

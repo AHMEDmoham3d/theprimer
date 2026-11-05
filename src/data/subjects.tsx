@@ -1,3 +1,4 @@
+
 import {
   Calculator,
   FlaskConical,
@@ -10,18 +11,26 @@ import {
   Shield,
   School,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { Subject } from '@/types';
 
-export const SUBJECT_META: Record<
-  Subject,
-  {
-    label: string;
-    labelAr: string;
-    icon: typeof Calculator;
-    accent: string;
-    accentSoft: string;
-  }
-> = {
+export interface SubjectMeta {
+  label: string;
+  labelAr: string;
+  icon: LucideIcon;
+  accent: string;
+  accentSoft: string;
+}
+
+const DEFAULT_SUBJECT_META: SubjectMeta = {
+  label: 'Subject',
+  labelAr: 'مادة دراسية',
+  icon: BookOpen,
+  accent: '#64748b',
+  accentSoft: '#f1f5f9',
+};
+
+const KNOWN_SUBJECT_META: Record<string, SubjectMeta> = {
   math: {
     label: 'Mathematics',
     labelAr: 'الرياضيات',
@@ -73,7 +82,55 @@ export const SUBJECT_META: Record<
   },
 };
 
-export const ALL_SUBJECTS = Object.keys(SUBJECT_META) as Subject[];
+/**
+ * Returns metadata for a subject.
+ * Subjects added by the admin are supported automatically and receive
+ * a safe default icon and colors until custom metadata is configured.
+ */
+export function getSubjectMeta(
+  subject: Subject | string,
+  labelAr?: string,
+  labelEn?: string,
+): SubjectMeta {
+  const knownMeta = KNOWN_SUBJECT_META[subject];
+
+  if (knownMeta) {
+    return knownMeta;
+  }
+
+  return {
+    ...DEFAULT_SUBJECT_META,
+    label: labelEn?.trim() || subject,
+    labelAr: labelAr?.trim() || DEFAULT_SUBJECT_META.labelAr,
+  };
+}
+
+/**
+ * Compatibility map for existing components that read SUBJECT_META[subject].
+ * Unknown subject keys receive default metadata instead of undefined.
+ */
+export const SUBJECT_META: Record<string, SubjectMeta> = new Proxy(
+  KNOWN_SUBJECT_META,
+  {
+    get(target, property: string | symbol): SubjectMeta | undefined {
+      if (typeof property !== 'string') {
+        return Reflect.get(target, property) as SubjectMeta | undefined;
+      }
+
+      return target[property] ?? {
+        ...DEFAULT_SUBJECT_META,
+        label: property,
+      };
+    },
+  },
+);
+
+/**
+ * This list contains only the built-in subjects.
+ * Student-facing subject lists must come from active database records,
+ * not from ALL_SUBJECTS.
+ */
+export const ALL_SUBJECTS = Object.keys(KNOWN_SUBJECT_META) as Subject[];
 
 export const ROLE_META = {
   student: {

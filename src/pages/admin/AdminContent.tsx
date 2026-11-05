@@ -7,6 +7,7 @@ import { Card, Badge, StatCard } from '@/components/ui';
 import { SUBJECT_META } from '@/data/subjects';
 import {
   fetchCurricula, fetchCurriculumGrades, fetchCurriculumSubjects, fetchUnits, fetchLessons,
+  fetchCurriculumPublicationSettings,
   type CurriculumRow, type CurriculumGradeRow, type CurriculumSubjectRow, type CurriculumUnitRow, type CurriculumLessonRow,
 } from '@/lib/db';
 import {
@@ -15,6 +16,8 @@ import {
   adminCreateSubject, adminUpdateSubject, adminDeleteSubject,
   adminCreateUnit, adminUpdateUnit, adminDeleteUnit,
   adminCreateLesson, adminUpdateLesson, adminDeleteLesson,
+  adminUpdatePublicationSettings,
+  type PublicationTerm,
 } from '@/lib/adminCurriculumApi';
 import type { Subject } from '@/types';
 import type { AdminPageProps } from './types';
@@ -35,8 +38,13 @@ export function AdminContent(_: AdminPageProps) {
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<Notice>(null);
 
+  const [currentTerm, setCurrentTerm] = useState<PublicationTerm>('first');
+  const [savedCurrentTerm, setSavedCurrentTerm] = useState<PublicationTerm>('first');
+  const [publicationLoading, setPublicationLoading] = useState(true);
+
   async function refreshCurricula() {
     setLoading(true);
+
     try {
       setCurricula(await fetchCurricula());
     } catch (e) {
@@ -46,8 +54,23 @@ export function AdminContent(_: AdminPageProps) {
     }
   }
 
+  async function loadPublicationSettings() {
+    setPublicationLoading(true);
+
+    try {
+      const settings = await fetchCurriculumPublicationSettings();
+      setCurrentTerm(settings.current_term);
+      setSavedCurrentTerm(settings.current_term);
+    } catch (e) {
+      setNotice({ kind: 'error', text: errorMessage(e) });
+    } finally {
+      setPublicationLoading(false);
+    }
+  }
+
   useEffect(() => {
     void refreshCurricula();
+    void loadPublicationSettings();
   }, []);
 
   function errorMessage(error: unknown) {
@@ -62,6 +85,7 @@ export function AdminContent(_: AdminPageProps) {
 
     try {
       await action();
+
       setNotice({
         kind: 'success',
         text: 'تم حفظ التغييرات بنجاح.',
@@ -79,6 +103,7 @@ export function AdminContent(_: AdminPageProps) {
   async function loadGrades(curriculumId: string) {
     try {
       const data = await fetchCurriculumGrades(curriculumId);
+
       setGrades(p => ({
         ...p,
         [curriculumId]: data,
@@ -94,6 +119,7 @@ export function AdminContent(_: AdminPageProps) {
   async function loadSubjects(curriculumId: string) {
     try {
       const data = await fetchCurriculumSubjects(curriculumId);
+
       setSubjects(p => ({
         ...p,
         [curriculumId]: data,
@@ -109,6 +135,7 @@ export function AdminContent(_: AdminPageProps) {
   async function loadUnits(subjectId: string) {
     try {
       const data = await fetchUnits(subjectId);
+
       setUnits(p => ({
         ...p,
         [subjectId]: data,
@@ -124,6 +151,7 @@ export function AdminContent(_: AdminPageProps) {
   async function loadLessons(unitId: string) {
     try {
       const data = await fetchLessons(unitId);
+
       setLessons(p => ({
         ...p,
         [unitId]: data,
@@ -378,6 +406,54 @@ export function AdminContent(_: AdminPageProps) {
     });
   }
 
+  // تحديد المناهج المصرية التي تكون فيها تالتة ثانوي سنة كاملة.
+  function isEgyptianThirdSecondary(
+    subject: CurriculumSubjectRow
+  ): boolean {
+    if (
+      subject.stage !== 'secondary' ||
+      subject.grade !== 'secondary_3'
+    ) {
+      return false;
+    }
+
+    const curriculum = curricula.find(curr =>
+      subjects[curr.id]?.some(item => item.id === subject.id)
+    );
+
+    if (!curriculum) return false;
+
+    const curriculumName =
+      `${curriculum.name || ''} ${curriculum.name_ar || ''}`.toLowerCase();
+
+    const allowedCurricula = [
+      'البكالوريا المصرية',
+      'التعليم الأزهري',
+      'المنهج المصري العام',
+      'شهادة مدارس النيل الدولية',
+      'egyptian baccalaureate',
+      'al-azhar',
+      'azhar',
+      'egyptian general',
+      'nile schools',
+      'nile international',
+    ];
+
+    return allowedCurricula.some(name =>
+      curriculumName.includes(name)
+    );
+  }
+
+  // حفظ الترم المنشور حاليًا لجميع الطلاب.
+  async function savePublishedTerm() {
+    await runAction(async () => {
+      const settings = await adminUpdatePublicationSettings(currentTerm);
+
+      setCurrentTerm(settings.current_term);
+      setSavedCurrentTerm(settings.current_term);
+    });
+  }
+
   async function addUnit(subject: CurriculumSubjectRow) {
     const name_ar = window.prompt(
       'اسم الوحدة بالعربية:'
@@ -391,6 +467,31 @@ export function AdminContent(_: AdminPageProps) {
         name_ar
       ) || name_ar;
 
+    const isFullYear = isEgyptianThirdSecondary(subject);
+
+    let term: 'first' | 'second' | 'full_year' = 'first';
+
+    if (isFullYear) {
+      term = 'full_year';
+    } else {
+      const selectedTerm = window.prompt(
+        'ترم الوحدة: اكتب first للترم الأول أو second للترم الثاني:',
+        'first'
+      );
+
+      if (selectedTerm === null) return;
+
+      if (selectedTerm !== 'first' && selectedTerm !== 'second') {
+        setNotice({
+          kind: 'error',
+          text: 'اكتب first أو second فقط.',
+        });
+        return;
+      }
+
+      term = selectedTerm;
+    }
+
     await runAction(async () => {
       await adminCreateUnit({
         subject_id: subject.id,
@@ -398,6 +499,7 @@ export function AdminContent(_: AdminPageProps) {
         name_ar,
         sort_order:
           (units[subject.id]?.length || 0) + 1,
+        term,
       });
 
       await loadUnits(subject.id);
@@ -418,10 +520,42 @@ export function AdminContent(_: AdminPageProps) {
         row.name
       ) || row.name;
 
+    const subject = Object.values(subjects)
+      .flat()
+      .find(item => item.id === row.subject_id);
+
+    const isFullYear = subject
+      ? isEgyptianThirdSecondary(subject)
+      : row.term === 'full_year';
+
+    let term: 'first' | 'second' | 'full_year' = 'first';
+
+    if (isFullYear) {
+      term = 'full_year';
+    } else {
+      const selectedTerm = window.prompt(
+        'ترم الوحدة: اكتب first للترم الأول أو second للترم الثاني:',
+        row.term === 'second' ? 'second' : 'first'
+      );
+
+      if (selectedTerm === null) return;
+
+      if (selectedTerm !== 'first' && selectedTerm !== 'second') {
+        setNotice({
+          kind: 'error',
+          text: 'اكتب first أو second فقط.',
+        });
+        return;
+      }
+
+      term = selectedTerm;
+    }
+
     await runAction(async () => {
       await adminUpdateUnit(row.id, {
         name,
         name_ar,
+        term,
       });
 
       await loadUnits(row.subject_id);
@@ -571,6 +705,55 @@ export function AdminContent(_: AdminPageProps) {
           وبعدها أضف الوحدات والدروس ومحتواها.
           البيانات مرتبطة بجداول Supabase الفعلية.
         </p>
+      </div>
+
+      {/* Global published term settings */}
+      <div className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white">
+              الترم المنشور حاليًا للطلاب
+            </h3>
+
+            <p className="mt-1 text-xs text-neutral-400">
+              تغيير الاختيار هنا يطبّق على جميع المناهج والصفوف التي تعمل بنظام الترمين.
+              تالتة ثانوي في المناهج المصرية المحددة تظل سنة كاملة.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={currentTerm}
+              disabled={publicationLoading || busy}
+              onChange={e =>
+                setCurrentTerm(e.target.value as PublicationTerm)
+              }
+              className="rounded-lg border border-[#333] bg-[#0f0f0f] px-3 py-2 text-sm text-white"
+            >
+              <option value="first">الترم الأول</option>
+              <option value="second">الترم الثاني</option>
+            </select>
+
+            <button
+              type="button"
+              disabled={
+                publicationLoading ||
+                busy ||
+                currentTerm === savedCurrentTerm
+              }
+              onClick={() => void savePublishedTerm()}
+              className="btn-primary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              حفظ الترم المنشور
+            </button>
+          </div>
+        </div>
+
+        {publicationLoading && (
+          <p className="mt-2 text-xs text-neutral-500">
+            جارٍ تحميل إعدادات الترم...
+          </p>
+        )}
       </div>
 
       {notice && (
@@ -882,6 +1065,14 @@ export function AdminContent(_: AdminPageProps) {
 
                                         <span className="flex-1 text-xs text-neutral-200">
                                           {unit.name_ar || unit.name}
+                                        </span>
+
+                                        <span className="rounded-md bg-neutral-800 px-2 py-1 text-[10px] text-neutral-400">
+                                          {unit.term === 'full_year'
+                                            ? 'سنة كاملة'
+                                            : unit.term === 'second'
+                                              ? 'الترم الثاني'
+                                              : 'الترم الأول'}
                                         </span>
 
                                         <span className="text-[10px] text-neutral-500">

@@ -18,11 +18,20 @@ type Resource =
 type Action =
   | 'create'
   | 'update'
-  | 'delete';
+  | 'delete'
+  | 'update_publication_settings';
+
+export type PublicationTerm = 'first' | 'second';
+
+export interface PublicationSettings {
+  id: 'global';
+  current_term: PublicationTerm;
+  updated_at: string;
+}
 
 async function adminRequest<T>(payload: {
   action: Action;
-  resource: Resource;
+  resource?: Resource;
   id?: string;
   data?: object;
 }): Promise<T> {
@@ -79,6 +88,10 @@ async function adminRequest<T>(payload: {
   return result.data as T;
 }
 
+// --------------------------------------------------
+// Curricula
+// --------------------------------------------------
+
 export const adminCreateCurriculum = (
   data:
     Pick<CurriculumRow, 'name'> &
@@ -117,6 +130,10 @@ export const adminDeleteCurriculum = (
     id,
   });
 
+// --------------------------------------------------
+// Grades
+// --------------------------------------------------
+
 export const adminCreateGrade = (
   data:
     Omit<CurriculumGradeRow, 'id' | 'is_active'> &
@@ -150,6 +167,10 @@ export const adminDeleteGrade = (
     id,
   });
 
+// --------------------------------------------------
+// Subjects
+// --------------------------------------------------
+
 export const adminCreateSubject = (
   data:
     Omit<CurriculumSubjectRow, 'id' | 'is_active'> &
@@ -182,6 +203,10 @@ export const adminDeleteSubject = (
     resource: 'curriculum_grade_subjects',
     id,
   });
+
+// --------------------------------------------------
+// Units
+// --------------------------------------------------
 
 export const adminCreateUnit = (
   data: Omit<
@@ -217,6 +242,10 @@ export const adminDeleteUnit = (
     id,
   });
 
+// --------------------------------------------------
+// Lessons
+// --------------------------------------------------
+
 export const adminCreateLesson = (
   data: Omit<
     CurriculumLessonRow,
@@ -250,6 +279,24 @@ export const adminDeleteLesson = (
     resource: 'curriculum_lessons',
     id,
   });
+
+// --------------------------------------------------
+// Global Publication Settings
+// --------------------------------------------------
+
+export const adminUpdatePublicationSettings = (
+  currentTerm: PublicationTerm
+) =>
+  adminRequest<PublicationSettings>({
+    action: 'update_publication_settings',
+    data: {
+      current_term: currentTerm,
+    },
+  });
+
+// --------------------------------------------------
+// Verify Admin Session
+// --------------------------------------------------
 
 export async function verifyAdminSession(
   accessToken: string

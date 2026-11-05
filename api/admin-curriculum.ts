@@ -16,7 +16,8 @@ type Action =
   | 'create'
   | 'update'
   | 'delete'
-  | 'verify';
+  | 'verify'
+  | 'update_publication_settings';
 
 const RESOURCE_COLUMNS: Record<Resource, string[]> = {
   curricula: [
@@ -53,6 +54,7 @@ const RESOURCE_COLUMNS: Record<Resource, string[]> = {
     'name',
     'name_ar',
     'sort_order',
+    'term',
   ],
 
   curriculum_lessons: [
@@ -155,6 +157,17 @@ function sanitizePayload(
   ) {
     throw new Error(
       'sort_order must be a non-negative integer.'
+    );
+  }
+
+  if (
+    'term' in payload &&
+    !['first', 'second', 'full_year'].includes(
+      String(payload.term)
+    )
+  ) {
+    throw new Error(
+      'term must be first, second, or full_year.'
     );
   }
 
@@ -275,51 +288,6 @@ export default async function handler(
     });
   }
 
-  const resources: Resource[] = [
-    'curricula',
-    'curriculum_grades',
-    'curriculum_grade_subjects',
-    'curriculum_units',
-    'curriculum_lessons',
-  ];
-
-  if (
-    !body.resource ||
-    !resources.includes(body.resource)
-  ) {
-    return sendError(
-      res,
-      400,
-      'Unsupported curriculum resource.'
-    );
-  }
-
-  if (
-    !['create', 'update', 'delete'].includes(
-      body.action || ''
-    )
-  ) {
-    return sendError(
-      res,
-      400,
-      'Unsupported action.'
-    );
-  }
-
-  if (
-    (
-      body.action === 'update' ||
-      body.action === 'delete'
-    ) &&
-    !body.id
-  ) {
-    return sendError(
-      res,
-      400,
-      'A record id is required.'
-    );
-  }
-
   const adminClient = createClient(
     supabaseUrl,
     serviceRoleKey,
@@ -333,8 +301,110 @@ export default async function handler(
   );
 
   try {
+    // Update the globally published school term.
+    if (body.action === 'update_publication_settings') {
+      if (
+        !body.data ||
+        typeof body.data !== 'object' ||
+        Array.isArray(body.data)
+      ) {
+        return sendError(
+          res,
+          400,
+          'Invalid publication settings data.'
+        );
+      }
+
+      const settings = body.data as Record<string, unknown>;
+
+      if (
+        settings.current_term !== 'first' &&
+        settings.current_term !== 'second'
+      ) {
+        return sendError(
+          res,
+          400,
+          'current_term must be first or second.'
+        );
+      }
+
+      const {
+        data,
+        error,
+      } = await adminClient
+        .from('curriculum_publication_settings')
+        .upsert(
+          {
+            id: 'global',
+            current_term: settings.current_term,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        )
+        .select('*')
+        .single();
+
+      if (error) {
+        return sendError(
+          res,
+          400,
+          error.message
+        );
+      }
+
+      return res.status(200).json({
+        data,
+      });
+    }
+
+    const resources: Resource[] = [
+      'curricula',
+      'curriculum_grades',
+      'curriculum_grade_subjects',
+      'curriculum_units',
+      'curriculum_lessons',
+    ];
+
+    if (
+      !body.resource ||
+      !resources.includes(body.resource)
+    ) {
+      return sendError(
+        res,
+        400,
+        'Unsupported curriculum resource.'
+      );
+    }
+
+    if (
+      !['create', 'update', 'delete'].includes(
+        body.action || ''
+      )
+    ) {
+      return sendError(
+        res,
+        400,
+        'Unsupported action.'
+      );
+    }
+
+    if (
+      (
+        body.action === 'update' ||
+        body.action === 'delete'
+      ) &&
+      !body.id
+    ) {
+      return sendError(
+        res,
+        400,
+        'A record id is required.'
+      );
+    }
+
     const table = body.resource;
 
+    // Create a new curriculum record.
     if (body.action === 'create') {
       const payload = sanitizePayload(
         table,
@@ -363,6 +433,7 @@ export default async function handler(
       });
     }
 
+    // Update an existing curriculum record.
     if (body.action === 'update') {
       const payload = sanitizePayload(
         table,
@@ -400,6 +471,7 @@ export default async function handler(
       });
     }
 
+    // Delete an existing curriculum record.
     const { error } = await adminClient
       .from(table)
       .delete()
@@ -416,6 +488,7 @@ export default async function handler(
     return res.status(200).json({
       ok: true,
     });
+
   } catch (error) {
     return sendError(
       res,
