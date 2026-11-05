@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send, Brain, X, PanelRightClose, PanelRightOpen,
@@ -27,9 +26,13 @@ interface TeacherChatProps {
   studentName: string;
 }
 
-const DYNAMIC_SUBJECT_WHITEBOARDS: Record<
-  Subject,
-  { title: string; steps: string[] }
+interface SubjectDisplayName {
+  label: string;
+  labelAr: string;
+}
+
+const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
+  Record<Subject, { title: string; steps: string[] }>
 > = {
   math: {
     title: 'توضيح القاعدة الرياضية والخطوات',
@@ -94,7 +97,7 @@ function detectSubject(text: string): Subject {
 
   const lower = text.toLowerCase();
 
-  const keywords: Record<Subject, string[]> = {
+  const keywords: Partial<Record<Subject, string[]>> = {
     math: [
       'معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل',
       'كسر', 'هندسة', 'مثلث', 'math', 'equation',
@@ -163,6 +166,12 @@ export function TeacherChat({
   const [studentStage, setStudentStage] = useState('');
   const [studentGrade, setStudentGrade] = useState('');
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+
+  // Dynamic names returned from curriculum_grade_subjects.
+  const [subjectDisplayNames, setSubjectDisplayNames] = useState<
+    Record<string, SubjectDisplayName>
+  >({});
+
   const [studentLoadError, setStudentLoadError] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -184,6 +193,7 @@ export function TeacherChat({
       setDbSchedule([]);
       setDbLessons([]);
       setAvailableSubjects([]);
+      setSubjectDisplayNames({});
       setStudentStage('');
       setStudentGrade('');
       setStudentLoadError('');
@@ -247,16 +257,35 @@ export function TeacherChat({
 
         if (cancelled) return;
 
+        // Accept every valid subject_key returned by the database.
+        // Do not restrict students to the old static ALL_SUBJECTS list.
+        const validRows = curriculumSubjects.filter(
+          (row) =>
+            typeof row.subject_key === 'string' &&
+            row.subject_key.trim().length > 0
+        );
+
         const validSubjects = Array.from(
           new Set(
-            curriculumSubjects
-              .map((row) => row.subject_key)
-              .filter((key): key is Subject =>
-                ALL_SUBJECTS.includes(key as Subject)
-              )
+            validRows.map((row) => row.subject_key as Subject)
           )
         );
 
+        // Keep the Arabic and English names supplied by the database.
+        const namesMap: Record<string, SubjectDisplayName> = {};
+
+        validRows.forEach((row) => {
+          const key = row.subject_key;
+
+          if (!namesMap[key]) {
+            namesMap[key] = {
+              label: row.subject_name || key,
+              labelAr: row.subject_name_ar || row.subject_name || key,
+            };
+          }
+        });
+
+        setSubjectDisplayNames(namesMap);
         setAvailableSubjects(validSubjects);
 
         if (validSubjects.length > 0) {
@@ -265,7 +294,7 @@ export function TeacherChat({
           );
         } else {
           setStudentLoadError(
-            'لم يتم العثور على مواد مسجلة لهذا المنهج والمرحلة والصف، أو أن المواد المسجلة غير مدعومة في واجهة التطبيق الحالية.'
+            'لم يتم العثور على مواد نشطة مسجلة لهذا المنهج والمرحلة والصف.'
           );
         }
       } catch (error) {
@@ -325,7 +354,16 @@ export function TeacherChat({
       || dbLessons[0];
   }, [dbLessons]);
 
-  const activeMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
+  // Use database names for dynamic subjects and existing metadata for known ones.
+  const activeBaseMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
+  const activeSubjectNames = subjectDisplayNames[activeSubject];
+
+  const activeMeta = {
+    ...activeBaseMeta,
+    label: activeSubjectNames?.label || activeBaseMeta.label,
+    labelAr: activeSubjectNames?.labelAr || activeBaseMeta.labelAr,
+  };
+
   const ActiveIcon = activeMeta.icon;
 
   const send = async (text?: string) => {
@@ -372,7 +410,7 @@ export function TeacherChat({
 
     const currentWb =
       DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject]
-      || DYNAMIC_SUBJECT_WHITEBOARDS.math;
+      || DYNAMIC_SUBJECT_WHITEBOARDS.math!;
 
     const messageId = `a-${Date.now()}-${currentRequestId}`;
     const useVoice = voiceOn && !muted;
@@ -556,7 +594,15 @@ export function TeacherChat({
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
                 {availableSubjects.map((subj) => {
-                  const meta = SUBJECT_META[subj] || SUBJECT_META.math;
+                  const baseMeta = SUBJECT_META[subj] || SUBJECT_META.math;
+                  const names = subjectDisplayNames[subj];
+
+                  const meta = {
+                    ...baseMeta,
+                    label: names?.label || baseMeta.label,
+                    labelAr: names?.labelAr || baseMeta.labelAr,
+                  };
+
                   const Icon = meta.icon;
                   const isActive = activeSubject === subj;
 
