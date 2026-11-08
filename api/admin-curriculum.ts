@@ -1,3 +1,4 @@
+
 import type {
   VercelRequest,
   VercelResponse,
@@ -17,7 +18,9 @@ type Action =
   | 'update'
   | 'delete'
   | 'verify'
-  | 'update_publication_settings';
+  | 'update_publication_settings'
+  | 'list_students'
+  | 'update_student_content_access';
 
 const RESOURCE_COLUMNS: Record<Resource, string[]> = {
   curricula: [
@@ -217,6 +220,7 @@ export default async function handler(
     );
   }
 
+  // Verify the authenticated admin session.
   const authorization =
     req.headers.authorization;
 
@@ -278,6 +282,8 @@ export default async function handler(
     action?: Action;
     resource?: Resource;
     id?: string;
+    student_id?: string;
+    content_access_enabled?: boolean;
     data?: unknown;
   };
 
@@ -288,6 +294,8 @@ export default async function handler(
     });
   }
 
+  // Admin-only database client.
+  // The service role key must remain on the server.
   const adminClient = createClient(
     supabaseUrl,
     serviceRoleKey,
@@ -301,8 +309,142 @@ export default async function handler(
   );
 
   try {
-    // Update the globally published school term.
-    if (body.action === 'update_publication_settings') {
+
+    // ==========================================
+    // STUDENT MANAGEMENT
+    // ==========================================
+
+    // Fetch real students from Supabase.
+    if (body.action === 'list_students') {
+
+      const {
+        data,
+        error,
+      } = await adminClient
+        .from('students')
+        .select(
+          `
+          id,
+          name,
+          grade,
+          stage,
+          grade_code,
+          school_name,
+          email,
+          student_email,
+          parent_name,
+          subscription_status,
+          content_access_enabled,
+          created_at
+          `
+        )
+        .order('created_at', {
+          ascending: false,
+        });
+
+      if (error) {
+        return sendError(
+          res,
+          400,
+          error.message
+        );
+      }
+
+      return res.status(200).json({
+        data: data || [],
+      });
+    }
+
+    // Enable or disable content access
+    // for one specific student.
+    if (
+      body.action ===
+      'update_student_content_access'
+    ) {
+
+      if (
+        typeof body.student_id !== 'string' ||
+        !body.student_id.trim()
+      ) {
+        return sendError(
+          res,
+          400,
+          'A valid student_id is required.'
+        );
+      }
+
+      if (
+        typeof body.content_access_enabled !==
+        'boolean'
+      ) {
+        return sendError(
+          res,
+          400,
+          'content_access_enabled must be true or false.'
+        );
+      }
+
+      const {
+        data,
+        error,
+      } = await adminClient
+        .from('students')
+        .update({
+          content_access_enabled:
+            body.content_access_enabled,
+
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq('id', body.student_id)
+        .select(
+          `
+          id,
+          name,
+          grade,
+          stage,
+          grade_code,
+          school_name,
+          email,
+          student_email,
+          parent_name,
+          subscription_status,
+          content_access_enabled,
+          created_at
+          `
+        )
+        .maybeSingle();
+
+      if (error) {
+        return sendError(
+          res,
+          400,
+          error.message
+        );
+      }
+
+      if (!data) {
+        return sendError(
+          res,
+          404,
+          'Student was not found.'
+        );
+      }
+
+      return res.status(200).json({
+        data,
+      });
+    }
+
+    // ==========================================
+    // GLOBAL CURRICULUM PUBLICATION SETTINGS
+    // ==========================================
+
+    if (
+      body.action ===
+      'update_publication_settings'
+    ) {
+
       if (
         !body.data ||
         typeof body.data !== 'object' ||
@@ -315,7 +457,8 @@ export default async function handler(
         );
       }
 
-      const settings = body.data as Record<string, unknown>;
+      const settings =
+        body.data as Record<string, unknown>;
 
       if (
         settings.current_term !== 'first' &&
@@ -339,7 +482,9 @@ export default async function handler(
             current_term: settings.current_term,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'id' }
+          {
+            onConflict: 'id',
+          }
         )
         .select('*')
         .single();
@@ -356,6 +501,10 @@ export default async function handler(
         data,
       });
     }
+
+    // ==========================================
+    // CURRICULUM MANAGEMENT
+    // ==========================================
 
     const resources: Resource[] = [
       'curricula',
@@ -404,8 +553,9 @@ export default async function handler(
 
     const table = body.resource;
 
-    // Create a new curriculum record.
+    // Create a curriculum record.
     if (body.action === 'create') {
+
       const payload = sanitizePayload(
         table,
         body.data
@@ -433,8 +583,9 @@ export default async function handler(
       });
     }
 
-    // Update an existing curriculum record.
+    // Update a curriculum record.
     if (body.action === 'update') {
+
       const payload = sanitizePayload(
         table,
         body.data
@@ -471,8 +622,10 @@ export default async function handler(
       });
     }
 
-    // Delete an existing curriculum record.
-    const { error } = await adminClient
+    // Delete a curriculum record.
+    const {
+      error,
+    } = await adminClient
       .from(table)
       .delete()
       .eq('id', body.id as string);
@@ -490,6 +643,7 @@ export default async function handler(
     });
 
   } catch (error) {
+
     return sendError(
       res,
       400,

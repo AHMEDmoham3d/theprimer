@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 
 import type {
@@ -19,7 +20,24 @@ type Action =
   | 'create'
   | 'update'
   | 'delete'
-  | 'update_publication_settings';
+  | 'update_publication_settings'
+  | 'list_students'
+  | 'update_student_content_access';
+
+export interface AdminStudentRow {
+  id: string;
+  name: string;
+  grade: string;
+  stage: string | null;
+  grade_code: string | null;
+  school_name: string | null;
+  email: string | null;
+  student_email: string | null;
+  parent_name: string | null;
+  subscription_status: string | null;
+  content_access_enabled: boolean;
+  created_at: string;
+}
 
 export type PublicationTerm = 'first' | 'second';
 
@@ -34,6 +52,8 @@ async function adminRequest<T>(payload: {
   resource?: Resource;
   id?: string;
   data?: object;
+  student_id?: string;
+  content_access_enabled?: boolean;
 }): Promise<T> {
   const {
     data: sessionData,
@@ -87,6 +107,38 @@ async function adminRequest<T>(payload: {
 
   return result.data as T;
 }
+
+// --------------------------------------------------
+// Student Management
+// --------------------------------------------------
+
+/**
+ * Fetch real students from the database.
+ * Only authorized admins can call this endpoint.
+ */
+export const adminFetchStudents = () =>
+  adminRequest<AdminStudentRow[]>({
+    action: 'list_students',
+  });
+
+/**
+ * Enable or disable educational content access
+ * for a specific student.
+ */
+export const adminUpdateStudentContentAccess = (
+  studentId: string,
+  enabled: boolean
+) => {
+  if (!studentId) {
+    throw new Error('معرّف الطالب غير موجود.');
+  }
+
+  return adminRequest<AdminStudentRow>({
+    action: 'update_student_content_access',
+    student_id: studentId,
+    content_access_enabled: enabled,
+  });
+};
 
 // --------------------------------------------------
 // Curricula
