@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import {
   ClipboardCheck,
@@ -20,7 +19,6 @@ import {
 } from '@/components/ui';
 
 import { SUBJECT_META } from '@/data/subjects';
-import type { Subject } from '@/types';
 
 import {
   updateLessonMastery,
@@ -47,7 +45,7 @@ interface ExamQuestion {
 
 interface DynamicExam {
   id: string;
-  subject: Subject;
+  subject: string;
   subjectLabel: string;
   topic: string;
   status: 'pending' | 'completed' | 'in-progress';
@@ -74,8 +72,7 @@ function createExamQuestions(
       ],
       correctAnswer: 'فهم المفاهيم الأساسية للدرس',
       points: 40,
-      explanation:
-        `يركز درس ${lessonTitle} على فهم المفاهيم الأساسية وتطبيقها.`,
+      explanation: `يركز درس ${lessonTitle} على فهم المفاهيم الأساسية وتطبيقها.`,
     },
     {
       id: `${lessonId}-q2`,
@@ -99,8 +96,21 @@ function createExamQuestions(
   ];
 }
 
+/**
+ * Returns the visual metadata for a known subject.
+ * Custom subjects receive neutral styling instead of falling back to Math.
+ */
 function getSubjectMeta(subject: string) {
-  return SUBJECT_META[subject as keyof typeof SUBJECT_META] || SUBJECT_META.math;
+  const meta = SUBJECT_META[subject as keyof typeof SUBJECT_META];
+
+  if (meta) {
+    return meta;
+  }
+
+  return {
+    accent: '#a3a3a3',
+    accentSoft: 'rgba(163, 163, 163, 0.12)',
+  };
 }
 
 function buildDynamicExams(
@@ -116,10 +126,15 @@ function buildDynamicExams(
       subject_name_ar: string | null;
     };
     mastery: LessonMasteryRow | null;
-  }>
+  }>,
+  allowedSubjectKeys: Set<string>
 ): DynamicExam[] {
   return lessons
-    .filter((item) => item.mastery !== null)
+    .filter(
+      (item) =>
+        item.mastery !== null &&
+        allowedSubjectKeys.has(item.subject.subject_key)
+    )
     .map((item) => {
       const mastery = item.mastery!;
 
@@ -139,17 +154,14 @@ function buildDynamicExams(
 
       return {
         id: mastery.id,
-        subject: item.subject.subject_key as Subject,
+        subject: item.subject.subject_key,
         subjectLabel,
         topic: lessonTitle,
         status: isCompleted ? 'completed' : 'pending',
         score: mastery.exam_score,
         totalPoints: 100,
         isLocked: !mastery.unlocked,
-        questions: createExamQuestions(
-          lessonTitle,
-          item.lesson.id
-        ),
+        questions: createExamQuestions(lessonTitle, item.lesson.id),
       };
     });
 }
@@ -167,7 +179,6 @@ export function StudentExams({
   const activeStudentId = studentId || storedStudentId || '';
 
   const [student, setStudent] = useState<StudentRow | null>(null);
-  const [lessonMastery, setLessonMastery] = useState<LessonMasteryRow[]>([]);
   const [dynamicExams, setDynamicExams] = useState<DynamicExam[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -176,7 +187,6 @@ export function StudentExams({
   const loadExamData = async () => {
     if (!activeStudentId) {
       setStudent(null);
-      setLessonMastery([]);
       setDynamicExams([]);
       setErrorMessage('لم يتم العثور على حساب الطالب. سجل الدخول مرة أخرى.');
       setLoading(false);
@@ -191,16 +201,22 @@ export function StudentExams({
 
       if (!data) {
         setStudent(null);
-        setLessonMastery([]);
         setDynamicExams([]);
         setErrorMessage('تعذر تحميل بيانات الطالب أو لم يتم العثور عليه.');
         return;
       }
 
       setStudent(data.student);
-      setLessonMastery(data.masteryRows);
 
-      const exams = buildDynamicExams(data.lessons);
+      const allowedSubjectKeys = new Set(
+        data.subjects.map((subject) => subject.subject_key)
+      );
+
+      const exams = buildDynamicExams(
+        data.lessons,
+        allowedSubjectKeys
+      );
+
       setDynamicExams(exams);
 
       if (!data.student.curriculum_id) {
@@ -208,7 +224,9 @@ export function StudentExams({
       } else if (data.subjects.length === 0) {
         setErrorMessage('لا توجد مواد دراسية مفعّلة في منهجك حتى الآن.');
       } else if (exams.length === 0) {
-        setErrorMessage('لا توجد دروس منشورة لها امتحانات في الترم الحالي حتى الآن.');
+        setErrorMessage(
+          'لا توجد دروس منشورة لها امتحانات في الترم الحالي حتى الآن.'
+        );
       }
     } catch (error) {
       console.error('Failed to load student exams:', error);

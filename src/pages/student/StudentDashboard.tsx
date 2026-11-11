@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Flame, Target, Clock, TrendingUp, MessageSquare, Calendar, Video, Sparkles, ChevronLeft, CheckCircle2, Circle, Brain, Send, Loader2, Sun, GraduationCap, Lock, CreditCard, X } from 'lucide-react';
+import { Flame, Target, Clock, TrendingUp, MessageSquare, Video, Sparkles, ChevronLeft, CheckCircle2, Circle, Brain, Send, Loader2, Sun, GraduationCap, Lock, CreditCard, X, BookOpen } from 'lucide-react';
 import { Card, StatCard, Badge, ProgressBar, Avatar } from '@/components/ui';
 import { NOTIFICATIONS } from '@/data/mockData';
 import { SUBJECT_META } from '@/data/subjects';
@@ -7,12 +7,12 @@ import { CurriculumSelector } from '@/components/CurriculumSelector';
 import type { StudentPageProps } from './types';
 import { cn } from '@/lib/utils';
 import {
-  fetchStudentById, fetchStudentProgress, fetchStudentSchedule,
+  fetchStudentById, fetchStudentProgress, fetchStudentSchedule, fetchCurriculumSubjects,
   updateScheduleSlotStatus, fetchStudentRecommendations,
   fetchSubscriptionSettings,
   isTrialExpired, getTrialDaysLeft,
   type StudentRow, type StudentProgressRow, type ScheduleSlotRow,
-  type SummerCourseRecommendation, type SubscriptionSettingsRow,
+  type SummerCourseRecommendation, type SubscriptionSettingsRow, type CurriculumSubjectRow,
 } from '@/lib/db';
 
 // Fallback demo student ID only if no student has registered or logged in
@@ -28,13 +28,17 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
   const [schedule, setSchedule] = useState<ScheduleSlotRow[]>([]);
   const [courses, setCourses] = useState<SummerCourseRecommendation[]>([]);
   const [subSettings, setSubSettings] = useState<SubscriptionSettingsRow | null>(null);
+  const [curriculumSubjects, setCurriculumSubjects] = useState<CurriculumSubjectRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingSlotId, setUpdatingSlotId] = useState<string | null>(null);
   const [showSuggestion, setShowSuggestion] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       setLoading(true);
+
       const [s, p, sch, c, ss] = await Promise.all([
         fetchStudentById(activeStudentId),
         fetchStudentProgress(activeStudentId),
@@ -42,13 +46,33 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
         fetchStudentRecommendations(activeStudentId),
         fetchSubscriptionSettings(),
       ]);
+
+      let subjects: CurriculumSubjectRow[] = [];
+
+      // Load subjects only for the student's exact curriculum, stage, and grade.
+      // If the student has no complete curriculum placement, show no subjects.
+      if (s?.curriculum_id && s.stage && s.grade_code) {
+        subjects = await fetchCurriculumSubjects(
+          s.curriculum_id,
+          s.stage,
+          s.grade_code
+        );
+      }
+
+      if (cancelled) return;
+
       setStudent(s);
       setProgress(p);
       setSchedule(sch);
       setCourses(c.filter((r) => r.status === 'confirmed'));
       setSubSettings(ss);
+      setCurriculumSubjects(subjects);
       setLoading(false);
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeStudentId]);
 
   const toggleSlotStatus = async (slot: ScheduleSlotRow) => {
@@ -80,8 +104,30 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
   const weeklyProgress = studentData?.weekly_progress ?? 0;
   const lastActive = studentData?.last_active ?? 'منذ قليل';
 
-  // Use real progress from DB
-  const progressData = progress.length > 0 ? progress : [];
+  // A subject is visible only when it exists in the student's active curriculum grade.
+  const allowedSubjectKeys = new Set(curriculumSubjects.map((subject) => subject.subject_key));
+  const progressData = progress.filter((item) => allowedSubjectKeys.has(item.subject));
+
+  const getSubjectDisplay = (subjectKey: string) => {
+    const curriculumSubject = curriculumSubjects.find(
+      (subject) => subject.subject_key === subjectKey
+    );
+    const predefinedMeta = SUBJECT_META[subjectKey as keyof typeof SUBJECT_META];
+
+    if (predefinedMeta) {
+      return {
+        ...predefinedMeta,
+        labelAr: curriculumSubject?.subject_name_ar || curriculumSubject?.subject_name || predefinedMeta.labelAr,
+      };
+    }
+
+    return {
+      labelAr: curriculumSubject?.subject_name_ar || curriculumSubject?.subject_name || subjectKey,
+      icon: BookOpen,
+      accent: '#a3a3a3',
+      accentSoft: 'rgba(163, 163, 163, 0.15)',
+    };
+  };
   const totalQuestions = progressData.reduce((sum, p) => sum + p.questions_answered, 0);
   const totalSessions = progressData.reduce((sum, p) => sum + p.sessions_completed, 0);
   const avgMastery = progressData.length > 0
@@ -92,7 +138,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
   const totalLearningHours = ((totalSessions * 25) / 60).toFixed(1);
 
   // Use real schedule from DB
-  const scheduleData = schedule.length > 0 ? schedule : [];
+  const scheduleData = schedule.filter((slot) => allowedSubjectKeys.has(slot.subject));
   const doneSlots = scheduleData.filter((s) => s.status === 'done').length;
   const totalSlots = scheduleData.length;
 
@@ -147,8 +193,13 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
               </p>
               <p className="text-xs text-neutral-400 mt-0.5">
                 المواد المتاحة: {trialSubjects
-                  ? trialSubjects.map((s) => SUBJECT_META[s as keyof typeof SUBJECT_META]?.labelAr).filter(Boolean).join('، ')
-                  : 'كل المواد'}
+                  ? curriculumSubjects
+                      .filter((subject) => trialSubjects.includes(subject.subject_key))
+                      .map((subject) => subject.subject_name_ar || subject.subject_name)
+                      .join('، ') || 'لم تتم إضافة مواد متاحة حتى الآن'
+                  : curriculumSubjects.length > 0
+                    ? curriculumSubjects.map((subject) => subject.subject_name_ar || subject.subject_name).join('، ')
+                    : 'لم تتم إضافة مواد للصف الدراسي حتى الآن'}
               </p>
             </div>
             <button onClick={() => onNavigate('progress')} className="btn-secondary text-xs hidden sm:flex">
@@ -235,7 +286,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
           </div>
           <div className="space-y-3">
             {scheduleData.filter((s) => s.status === 'upcoming').slice(0, 4).map((slot) => {
-              const meta = SUBJECT_META[slot.subject as keyof typeof SUBJECT_META] ?? SUBJECT_META.math;
+              const meta = getSubjectDisplay(slot.subject);
               const Icon = meta.icon;
               return (
                 <div key={slot.id} className="flex items-center gap-4 rounded-xl border border-[#2a2a2a] bg-[#141414] p-4 hover:border-[#444] transition">
@@ -284,36 +335,45 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
           <h3 className="font-bold text-white">تقدمك في المواد</h3>
           <button onClick={() => onNavigate('progress')} className="text-xs text-neutral-400 hover:text-white">تفاصيل أكثر</button>
         </div>
-        {progressData.length > 0 ? (
+        {curriculumSubjects.length === 0 ? (
+          <p className="py-8 text-center text-sm text-neutral-500">
+            مفيش مواد مضافة للمنهج والصف الدراسي بتاعك لسه. هتظهر هنا بعد ما الأدمن يضيف المواد.
+          </p>
+        ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {progressData.map((p) => {
-              const meta = SUBJECT_META[p.subject as keyof typeof SUBJECT_META] ?? SUBJECT_META.math;
+            {curriculumSubjects.map((subject) => {
+              const subjectProgress = progressData.find(
+                (item) => item.subject === subject.subject_key
+              );
+              const meta = getSubjectDisplay(subject.subject_key);
               const Icon = meta.icon;
+              const mastery = subjectProgress?.mastery ?? 0;
+              const questionsAnswered = subjectProgress?.questions_answered ?? 0;
+              const sessionsCompleted = subjectProgress?.sessions_completed ?? 0;
+
               return (
-                <div key={p.id} className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-4">
+                <div key={subject.id} className="rounded-xl border border-[#2a2a2a] bg-[#141414] p-4">
                   <div className="mb-3 flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: meta.accentSoft, color: meta.accent }}>
                       <Icon size={18} />
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-white">{meta.labelAr}</h4>
-                      <p className="text-xs text-neutral-500">{p.questions_answered} سؤال — {p.sessions_completed} جلسة</p>
+                      <p className="text-xs text-neutral-500">{questionsAnswered} سؤال — {sessionsCompleted} جلسة</p>
                     </div>
-                    <span className="mr-auto text-2xl font-bold text-white">{p.mastery}%</span>
+                    <span className="mr-auto text-2xl font-bold text-white">{mastery}%</span>
                   </div>
-                  <ProgressBar value={p.mastery} color={meta.accent} />
-                  {p.weaknesses && p.weaknesses.length > 0 && (
+                  <ProgressBar value={mastery} color={meta.accent} />
+                  {subjectProgress?.weaknesses && subjectProgress.weaknesses.length > 0 && (
                     <p className="text-[10px] text-neutral-500 mt-2 flex items-center gap-1">
                       <Target size={10} className="text-amber-400" />
-                      محتاج شغل على: {p.weaknesses.join('، ')}
+                      محتاج شغل على: {subjectProgress.weaknesses.join('، ')}
                     </p>
                   )}
                 </div>
               );
             })}
           </div>
-        ) : (
-          <p className="py-8 text-center text-sm text-neutral-500">جاري تحميل بيانات التقدم...</p>
         )}
       </Card>
 
@@ -335,7 +395,7 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
         {scheduleData.length > 0 ? (
           <div className="space-y-2">
             {scheduleData.map((slot) => {
-              const meta = SUBJECT_META[slot.subject as keyof typeof SUBJECT_META] ?? SUBJECT_META.math;
+              const meta = getSubjectDisplay(slot.subject);
               const Icon = meta.icon;
               const typeLabels: Record<string, string> = { review: 'مراجعة', new: 'درس جديد', practice: 'تدريب', 'exam-prep': 'استعداد امتحان' };
               const typeColors: Record<string, string> = { review: 'bg-blue-500/10 text-blue-400', new: 'bg-emerald-500/10 text-emerald-400', practice: 'bg-amber-500/10 text-amber-400', 'exam-prep': 'bg-red-500/10 text-red-400' };
@@ -375,7 +435,11 @@ export function StudentDashboard({ studentId, onNavigate }: StudentPageProps & {
             })}
           </div>
         ) : (
-          <p className="py-8 text-center text-sm text-neutral-500">جاري تحميل الجدول...</p>
+          <p className="py-8 text-center text-sm text-neutral-500">
+            {curriculumSubjects.length === 0
+              ? 'مفيش مواد مضافة للمنهج والصف الدراسي بتاعك لسه.'
+              : 'مفيش جلسات مذاكرة مجدولة حالياً.'}
+          </p>
         )}
         <div className="mt-4 flex items-center justify-between rounded-xl bg-[#0f0f0f] p-3">
           <div className="flex items-center gap-2">

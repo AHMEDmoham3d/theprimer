@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Star, AlertCircle, Award, Lock, CheckCircle2, Play, Loader2, Brain, ChevronLeft } from 'lucide-react';
+import { Star, AlertCircle, Lock, CheckCircle2, Play, Loader2, Brain, BookOpen } from 'lucide-react';
 import { Card, ProgressBar, Badge } from '@/components/ui';
 import { SUBJECT_META } from '@/data/subjects';
-import type { Subject } from '@/types';
 import { cn } from '@/lib/utils';
 import {
   fetchStudentById,
   fetchStudentProgress,
   fetchLessonMastery,
+  fetchCurriculumSubjects,
   updateLessonMastery,
   unlockNextLesson,
   type LessonMasteryRow,
   type StudentRow,
   type StudentProgressRow,
+  type CurriculumSubjectRow,
 } from '@/lib/db';
 
 export function StudentProgress({ studentId }: { studentId?: string }) {
@@ -22,23 +23,69 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   const [student, setStudent] = useState<StudentRow | null>(null);
   const [progressRows, setProgressRows] = useState<StudentProgressRow[]>([]);
   const [mastery, setMastery] = useState<LessonMasteryRow[]>([]);
+  const [curriculumSubjects, setCurriculumSubjects] = useState<CurriculumSubjectRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSubject, setSelectedSubject] = useState<Subject>('math');
+  const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
+    let isMounted = true;
+
+    const loadStudentProgress = async () => {
       setLoading(true);
-      const [s, p, m] = await Promise.all([
-        fetchStudentById(activeStudentId),
-        fetchStudentProgress(activeStudentId),
-        fetchLessonMastery(activeStudentId),
-      ]);
-      setStudent(s);
-      setProgressRows(p);
-      setMastery(m);
-      setLoading(false);
-    })();
+
+      try {
+        const [s, p, m] = await Promise.all([
+          fetchStudentById(activeStudentId),
+          fetchStudentProgress(activeStudentId),
+          fetchLessonMastery(activeStudentId),
+        ]);
+
+        let subjects: CurriculumSubjectRow[] = [];
+
+        // Load subjects only for this student's exact curriculum, stage, and grade.
+        // If any of these values is missing, do not show subjects from other grades.
+        if (s?.curriculum_id && s.stage && s.grade_code) {
+          try {
+            subjects = await fetchCurriculumSubjects(
+              s.curriculum_id,
+              s.stage,
+              s.grade_code
+            );
+          } catch (error) {
+            console.warn('StudentProgress curriculum subjects warning:', error);
+          }
+        }
+
+        if (!isMounted) return;
+
+        setStudent(s);
+        setProgressRows(p);
+        setMastery(m);
+        setCurriculumSubjects(subjects);
+        setSelectedSubject((current) =>
+          subjects.some((subject) => subject.subject_key === current)
+            ? current
+            : subjects[0]?.subject_key || ''
+        );
+      } catch (error) {
+        console.error('StudentProgress loading error:', error);
+        if (!isMounted) return;
+        setStudent(null);
+        setProgressRows([]);
+        setMastery([]);
+        setCurriculumSubjects([]);
+        setSelectedSubject('');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadStudentProgress();
+
+    return () => {
+      isMounted = false;
+    };
   }, [activeStudentId]);
 
   const completeLesson = async (lesson: LessonMasteryRow) => {
@@ -74,15 +121,43 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
   const studentName = student?.name ?? 'طالب جديد';
   const studentGrade = student?.grade ?? 'الصف الثانوي';
 
-  const subjectProgressMap = new Map(progressRows.map((p) => [p.subject, p]));
-  const subjectsList: Subject[] = ['math', 'physics', 'chemistry', 'biology', 'history', 'english', 'geography'];
+  const subjectsList = curriculumSubjects;
+  const visibleSubjectKeys = new Set(subjectsList.map((subject) => subject.subject_key));
+  const visibleProgressRows = progressRows.filter((row) => visibleSubjectKeys.has(row.subject));
+  const subjectProgressMap = new Map(visibleProgressRows.map((row) => [row.subject, row]));
 
-  const overallMastery = progressRows.length > 0
-    ? Math.round(progressRows.reduce((acc, p) => acc + p.mastery, 0) / progressRows.length)
+  const overallMastery = visibleProgressRows.length > 0
+    ? Math.round(visibleProgressRows.reduce((acc, row) => acc + row.mastery, 0) / visibleProgressRows.length)
     : 0;
 
-  const subjectMastery = mastery.filter((m) => m.subject === selectedSubject);
-  const activeMeta = SUBJECT_META[selectedSubject] || SUBJECT_META.math;
+  const selectedSubjectRow = subjectsList.find((subject) => subject.subject_key === selectedSubject);
+  const subjectMastery = selectedSubject
+    ? mastery.filter((row) => row.subject === selectedSubject)
+    : [];
+
+  const getSubjectMeta = (subjectKey: string, subjectNameAr?: string, subjectName?: string) => {
+    const knownMeta = SUBJECT_META[subjectKey as keyof typeof SUBJECT_META];
+
+    return {
+      labelAr: subjectNameAr || subjectName || knownMeta?.labelAr || subjectKey,
+      accent: knownMeta?.accent || '#34d399',
+      accentSoft: knownMeta?.accentSoft || 'rgba(52, 211, 153, 0.15)',
+      icon: knownMeta?.icon || BookOpen,
+    };
+  };
+
+  const activeMeta = selectedSubjectRow
+    ? getSubjectMeta(
+        selectedSubjectRow.subject_key,
+        selectedSubjectRow.subject_name_ar,
+        selectedSubjectRow.subject_name
+      )
+    : {
+        labelAr: 'لا توجد مادة محددة',
+        accent: '#34d399',
+        accentSoft: 'rgba(52, 211, 153, 0.15)',
+        icon: BookOpen,
+      };
   const ActiveIcon = activeMeta.icon;
 
   const completedCount = subjectMastery.filter((m) => m.mastery >= 100 && m.exam_passed).length;
@@ -108,11 +183,23 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
         </div>
       </Card>
 
-      {/* Subject breakdown from real DB progress */}
+      {/* Subject breakdown: only subjects configured by the admin for this student's grade */}
+      {subjectsList.length === 0 ? (
+        <Card>
+          <div className="py-8 text-center">
+            <BookOpen size={30} className="mx-auto mb-3 text-neutral-500" />
+            <h3 className="font-bold text-white">لا توجد مواد دراسية متاحة حاليًا</h3>
+            <p className="mt-2 text-sm text-neutral-400">
+              لم يضف المسؤول مواد للمنهج والصف الدراسي الخاصين بك حتى الآن.
+            </p>
+          </div>
+        </Card>
+      ) : (
       <div className="grid gap-4 sm:grid-cols-2">
-        {subjectsList.map((subjKey) => {
+        {subjectsList.map((subject) => {
+          const subjKey = subject.subject_key;
           const p = subjectProgressMap.get(subjKey);
-          const meta = SUBJECT_META[subjKey] || SUBJECT_META.math;
+          const meta = getSubjectMeta(subjKey, subject.subject_name_ar, subject.subject_name);
           const Icon = meta.icon;
           const subjLessons = mastery.filter((m) => m.subject === subjKey);
           const subjCompleted = subjLessons.filter((m) => m.mastery >= 100 && m.exam_passed).length;
@@ -166,6 +253,7 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
           );
         })}
       </div>
+      )}
 
       {/* Lesson Progression */}
       <Card>
@@ -180,9 +268,16 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
         </div>
 
         {/* Subject tabs */}
+        {subjectsList.length === 0 ? (
+          <p className="py-8 text-center text-sm text-neutral-400">
+            مسار الدروس غير متاح حاليًا؛ لم تتم إضافة مواد لهذا الصف بعد.
+          </p>
+        ) : (
+        <>
         <div className="mb-5 flex flex-wrap gap-2">
-          {subjectsList.map((subjKey) => {
-            const meta = SUBJECT_META[subjKey] || SUBJECT_META.math;
+          {subjectsList.map((subject) => {
+            const subjKey = subject.subject_key;
+            const meta = getSubjectMeta(subjKey, subject.subject_name_ar, subject.subject_name);
             const isActive = selectedSubject === subjKey;
             return (
               <button
@@ -318,9 +413,13 @@ export function StudentProgress({ studentId }: { studentId?: string }) {
             );
           })}
           {subjectMastery.length === 0 && (
-            <p className="py-8 text-center text-sm text-neutral-500">جاري تحميل الدروس...</p>
+            <p className="py-8 text-center text-sm text-neutral-500">
+              لم تتم إضافة دروس لهذه المادة حتى الآن.
+            </p>
           )}
         </div>
+        </>
+        )}
       </Card>
     </div>
   );

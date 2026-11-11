@@ -279,7 +279,8 @@ export async function createStudent(input: {
       school_id: input.school_id,
       school_name: input.school_name,
       avatar,
-      active_subject: 'math',
+      // No default subject: the student's available subjects come only from curriculum_grade_subjects.
+      active_subject: '',
       last_active: 'الآن',
       subscription_status: 'trial',
       parent_name: input.parent_name,

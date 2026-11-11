@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
-import { SUBJECT_META, ALL_SUBJECTS } from '@/data/subjects';
+import { SUBJECT_META } from '@/data/subjects';
 import { SMART_QUESTIONS } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
@@ -92,8 +92,8 @@ const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
   },
 };
 
-function detectSubject(text: string): Subject {
-  if (!text) return 'math';
+function detectSubject(text: string, availableSubjects: Subject[]): Subject | null {
+  if (!text || availableSubjects.length === 0) return null;
 
   const lower = text.toLowerCase();
 
@@ -125,13 +125,13 @@ function detectSubject(text: string): Subject {
     ],
   };
 
-  for (const subject of ALL_SUBJECTS) {
+  for (const subject of availableSubjects) {
     if (keywords[subject]?.some((kw) => lower.includes(kw))) {
       return subject;
     }
   }
 
-  return 'math';
+  return null;
 }
 
 export function TeacherChat({
@@ -153,7 +153,7 @@ export function TeacherChat({
   const [typing, setTyping] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [activeSubject, setActiveSubject] = useState<Subject>('math');
+  const [activeSubject, setActiveSubject] = useState<Subject | ''>('');
   const [subjectBarOpen, setSubjectBarOpen] = useState(true);
 
   const [dbProgress, setDbProgress] = useState<StudentProgressRow[]>([]);
@@ -290,11 +290,12 @@ export function TeacherChat({
 
         if (validSubjects.length > 0) {
           setActiveSubject((current) =>
-            validSubjects.includes(current) ? current : validSubjects[0]
+            current && validSubjects.includes(current) ? current : validSubjects[0]
           );
         } else {
+          setActiveSubject('');
           setStudentLoadError(
-            'لم يتم العثور على مواد نشطة مسجلة لهذا المنهج والمرحلة والصف.'
+            'لم يتم العثور على مواد نشطة مسجلة لهذا المنهج والمرحلة والصف. اطلب من مسؤول النظام إضافة المواد من صفحة الأدمن.'
           );
         }
       } catch (error) {
@@ -320,7 +321,7 @@ export function TeacherChat({
   useEffect(() => {
     let cancelled = false;
 
-    if (!activeStudentId || !availableSubjects.includes(activeSubject)) {
+    if (!activeStudentId || !activeSubject || !availableSubjects.includes(activeSubject)) {
       setDbLessons([]);
       return;
     }
@@ -355,8 +356,12 @@ export function TeacherChat({
   }, [dbLessons]);
 
   // Use database names for dynamic subjects and existing metadata for known ones.
-  const activeBaseMeta = SUBJECT_META[activeSubject] || SUBJECT_META.math;
-  const activeSubjectNames = subjectDisplayNames[activeSubject];
+  const activeBaseMeta = activeSubject
+    ? SUBJECT_META[activeSubject]
+    : { label: 'No subject selected', labelAr: 'لم يتم تحديد مادة', icon: BookMarked, accent: '#9ca3af', accentSoft: '#262626' };
+  const activeSubjectNames = activeSubject
+    ? subjectDisplayNames[activeSubject]
+    : undefined;
 
   const activeMeta = {
     ...activeBaseMeta,
@@ -386,12 +391,11 @@ export function TeacherChat({
     }
 
     // Keep the detected subject inside the student's available curriculum.
-    const detectedSubject = detectSubject(content);
-    const selectedSubject = availableSubjects.includes(detectedSubject)
-      ? detectedSubject
-      : availableSubjects.includes(activeSubject)
+    const detectedSubject = detectSubject(content, availableSubjects);
+    const selectedSubject = detectedSubject
+      || (activeSubject && availableSubjects.includes(activeSubject)
         ? activeSubject
-        : availableSubjects[0];
+        : availableSubjects[0]);
 
     const currentRequestId = ++requestIdRef.current;
     stopTutorAudio();
@@ -410,7 +414,14 @@ export function TeacherChat({
 
     const currentWb =
       DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject]
-      || DYNAMIC_SUBJECT_WHITEBOARDS.math!;
+      || {
+        title: `شرح مادة ${subjectDisplayNames[selectedSubject]?.labelAr || selectedSubject}`,
+        steps: [
+          '1. تحديد الفكرة أو السؤال المطلوب فهمه',
+          '2. شرح المفهوم خطوة بخطوة مع أمثلة مناسبة',
+          '3. مراجعة الفهم والتأكد من استيعاب النقاط الأساسية',
+        ],
+      };
 
     const messageId = `a-${Date.now()}-${currentRequestId}`;
     const useVoice = voiceOn && !muted;
@@ -547,7 +558,7 @@ export function TeacherChat({
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold text-white truncate">
-                مدرّسك في {activeMeta.labelAr}
+                {activeSubject ? `مدرّسك في ${activeMeta.labelAr}` : 'مدرّسك الشخصي'}
               </span>
 
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">
@@ -590,11 +601,13 @@ export function TeacherChat({
         )}
 
         <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
-          {subjectBarOpen ? (
+          {availableSubjects.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-amber-300">لا توجد مواد مضافة لهذا الصف حتى الآن.</p>
+          ) : subjectBarOpen ? (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
                 {availableSubjects.map((subj) => {
-                  const baseMeta = SUBJECT_META[subj] || SUBJECT_META.math;
+                  const baseMeta = SUBJECT_META[subj];
                   const names = subjectDisplayNames[subj];
 
                   const meta = {
@@ -656,6 +669,12 @@ export function TeacherChat({
           ref={scrollRef}
           className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0"
         >
+          {availableSubjects.length === 0 && messages.length === 0 && (
+            <div className="mx-auto max-w-md rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-center text-sm leading-7 text-neutral-300">
+              لا توجد مواد دراسية متاحة لحسابك حاليًا. بمجرد أن يضيف مسؤول النظام مادة من صفحة الأدمن، ستظهر هنا تلقائيًا.
+            </div>
+          )}
+
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))}
@@ -725,13 +744,14 @@ export function TeacherChat({
                   void send();
                 }
               }}
-              placeholder="اسأل مدرّسك..."
+              placeholder={availableSubjects.length > 0 ? 'اسأل مدرّسك...' : 'لا توجد مواد متاحة حاليًا'}
+              disabled={availableSubjects.length === 0}
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
 
             <button
               onClick={() => void send()}
-              disabled={!input.trim()}
+              disabled={!input.trim() || availableSubjects.length === 0}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
               aria-label="إرسال السؤال"
             >

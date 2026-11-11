@@ -1,8 +1,10 @@
+
 import { useState, useEffect } from 'react';
 import type { Role } from '@/types';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { SmartPortal } from '@/components/SmartPortal';
+import { StudentContentGuard } from '@/components/StudentContentGuard';
 
 import { LandingPage } from '@/pages/LandingPage';
 
@@ -66,19 +68,19 @@ function App() {
 
   const [studentId, setStudentId] = useState<string | undefined>(undefined);
 
-  // التحقق من رابط الأدمن عند فتح الموقع
+  // Check admin access when opening the admin route.
   useEffect(() => {
     let cancelled = false;
 
     async function checkAdminAccess() {
       const currentPath = window.location.pathname;
 
-      // إزالة أي استخدام قديم للرابط السري
+      // Remove the legacy secret URL hash.
       if (window.location.hash === '#admin-secret') {
         window.history.replaceState(null, '', currentPath);
       }
 
-      // لا نبدأ فحص الأدمن إلا عند فتح /admin
+      // Only check admin access on /admin.
       if (currentPath !== '/admin' && currentPath !== '/admin/') {
         return;
       }
@@ -106,7 +108,7 @@ function App() {
           return;
         }
 
-        // التحقق من أن الحساب أدمن فعليًا من خلال API
+        // Verify that the account is an authorized admin.
         await verifyAdminSession(accessToken);
 
         if (cancelled) {
@@ -116,7 +118,10 @@ function App() {
         setRole('admin');
         setActivePage('dashboard');
         setAppState('app');
+
       } catch (error) {
+        console.error('Admin access check failed:', error);
+
         await supabase.auth.signOut();
 
         if (!cancelled) {
@@ -132,6 +137,7 @@ function App() {
     };
   }, []);
 
+  // Enter the selected application portal.
   const enterApp = (
     selectedRole: Role,
     selectedId?: string
@@ -141,9 +147,18 @@ function App() {
     if (selectedRole === 'school') {
       setSchoolId(selectedId);
       setStudentId(undefined);
+
     } else if (selectedRole === 'student') {
       setStudentId(selectedId);
       setSchoolId(undefined);
+
+      if (selectedId) {
+        localStorage.setItem(
+          'current_student_id',
+          selectedId
+        );
+      }
+
     } else {
       setSchoolId(undefined);
       setStudentId(undefined);
@@ -166,7 +181,7 @@ function App() {
     setAppState('landing');
   };
 
-  // شاشة فحص صلاحية الأدمن
+  // Admin access verification screen.
   if (appState === 'admin-checking') {
     return (
       <main
@@ -174,17 +189,19 @@ function App() {
         className="flex min-h-screen items-center justify-center bg-[#090909] text-white"
       >
         <div className="text-center">
+
           <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-neutral-700 border-t-cyan-400" />
 
           <p className="text-sm text-neutral-300">
             جارٍ التحقق من صلاحية الدخول...
           </p>
+
         </div>
       </main>
     );
   }
 
-  // شاشة تسجيل دخول الأدمن
+  // Admin login screen.
   if (appState === 'admin-login') {
     return (
       <AdminLogin
@@ -216,6 +233,15 @@ function App() {
     );
   }
 
+  // Render the selected page.
+  const pageContent = renderPage(
+    role,
+    activePage,
+    setActivePage,
+    schoolId,
+    studentId
+  );
+
   return (
     <AppShell
       role={role}
@@ -224,13 +250,21 @@ function App() {
       onSwitchRole={switchRole}
       notificationsCount={3}
     >
-      {renderPage(
-        role,
-        activePage,
-        setActivePage,
-        schoolId,
-        studentId
+
+      {role === 'student' ? (
+
+        <StudentContentGuard
+          studentId={studentId}
+        >
+          {pageContent}
+        </StudentContentGuard>
+
+      ) : (
+
+        pageContent
+
       )}
+
     </AppShell>
   );
 }

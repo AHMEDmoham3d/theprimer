@@ -4,7 +4,7 @@ import {
   GraduationCap, FolderTree, Layers, FileText, Pencil, Trash2,
 } from 'lucide-react';
 import { Card, Badge, StatCard } from '@/components/ui';
-import { SUBJECT_META } from '@/data/subjects';
+import { getSubjectMeta } from '@/data/subjects';
 import {
   fetchCurricula, fetchCurriculumGrades, fetchCurriculumSubjects, fetchUnits, fetchLessons,
   fetchCurriculumPublicationSettings,
@@ -19,7 +19,6 @@ import {
   adminUpdatePublicationSettings,
   type PublicationTerm,
 } from '@/lib/adminCurriculumApi';
-import type { Subject } from '@/types';
 import type { AdminPageProps } from './types';
 
 type Notice = { kind: 'success' | 'error'; text: string } | null;
@@ -317,46 +316,124 @@ export function AdminContent(_: AdminPageProps) {
   }
 
   async function addSubject(curriculumId: string) {
-    const stage = window.prompt(
-      'المرحلة (اكتب نفس القيمة المستخدمة في curriculum_grades.stage):'
+    // Subjects must be attached to a grade that already exists in Supabase.
+    let curriculumGrades = grades[curriculumId];
+
+    if (!curriculumGrades) {
+      try {
+        curriculumGrades = await fetchCurriculumGrades(curriculumId);
+        setGrades(previous => ({
+          ...previous,
+          [curriculumId]: curriculumGrades!,
+        }));
+      } catch (error) {
+        setNotice({ kind: 'error', text: errorMessage(error) });
+        return;
+      }
+    }
+
+    const availableGrades = curriculumGrades.filter(
+      gradeRow => gradeRow.is_active
     );
 
-    if (!stage?.trim()) return;
+    if (availableGrades.length === 0) {
+      setNotice({
+        kind: 'error',
+        text: 'لازم تضيف صفًا دراسيًا وتفعّله أولًا قبل إضافة مادة.',
+      });
+      return;
+    }
 
-    const grade = window.prompt(
-      'كود الصف (نفس curriculum_grades.grade_code):'
+    const gradeOptions = availableGrades
+      .map((gradeRow, index) =>
+        `${index + 1}) ${gradeRow.grade_name_ar} (${gradeRow.stage} / ${gradeRow.grade_code})`
+      )
+      .join('\n');
+
+    const selectedGradeNumber = window.prompt(
+      `اختار الصف الذي تريد إضافة المادة إليه بكتابة رقمه:\n\n${gradeOptions}`
     );
 
-    if (!grade?.trim()) return;
+    if (selectedGradeNumber === null || !selectedGradeNumber.trim()) return;
 
-    const subject_name_ar = window.prompt(
-      'اسم المادة بالعربية:'
-    );
+    const selectedGradeIndex = Number(selectedGradeNumber) - 1;
+    const selectedGrade = availableGrades[selectedGradeIndex];
 
+    if (!Number.isInteger(selectedGradeIndex) || !selectedGrade) {
+      setNotice({
+        kind: 'error',
+        text: 'رقم الصف غير صحيح. حاول مرة أخرى.',
+      });
+      return;
+    }
+
+    const subject_name_ar = window.prompt('اسم المادة بالعربية:');
     if (!subject_name_ar?.trim()) return;
 
     const subject_name =
-      window.prompt(
-        'اسم المادة بالإنجليزية (اختياري):'
-      ) || subject_name_ar;
+      window.prompt('اسم المادة بالإنجليزية (اختياري):')?.trim() ||
+      subject_name_ar.trim();
 
-    const subject_key = window.prompt(
-      'مفتاح المادة (math / physics / chemistry / biology / english / history / geography):',
-      'math'
+    const subject_key_input = window.prompt(
+      'مفتاح المادة باللغة الإنجليزية أو بحروف صغيرة، مثل: arabic أو math أو physics.\nاكتب مفتاحًا مميزًا لهذه المادة:'
     );
 
-    if (!subject_key?.trim()) return;
+    if (!subject_key_input?.trim()) return;
+
+    const subject_key = subject_key_input.trim().toLowerCase();
+
+    if (!/^[a-z0-9_]+$/.test(subject_key)) {
+      setNotice({
+        kind: 'error',
+        text: 'مفتاح المادة يجب أن يحتوي على حروف إنجليزية صغيرة أو أرقام أو _ فقط.',
+      });
+      return;
+    }
+
+    let curriculumSubjects = subjects[curriculumId];
+
+    if (!curriculumSubjects) {
+      try {
+        curriculumSubjects = await fetchCurriculumSubjects(curriculumId);
+        setSubjects(previous => ({
+          ...previous,
+          [curriculumId]: curriculumSubjects!,
+        }));
+      } catch (error) {
+        setNotice({ kind: 'error', text: errorMessage(error) });
+        return;
+      }
+    }
+
+    const duplicateSubject = curriculumSubjects.some(subject =>
+      subject.stage === selectedGrade.stage &&
+      subject.grade === selectedGrade.grade_code &&
+      subject.subject_key.toLowerCase() === subject_key
+    );
+
+    if (duplicateSubject) {
+      setNotice({
+        kind: 'error',
+        text: 'المادة بهذا المفتاح موجودة بالفعل في الصف المحدد.',
+      });
+      return;
+    }
+
+    const gradeSubjectsCount = curriculumSubjects.filter(subject =>
+      subject.stage === selectedGrade.stage &&
+      subject.grade === selectedGrade.grade_code
+    ).length;
 
     await runAction(async () => {
       await adminCreateSubject({
         curriculum_id: curriculumId,
-        stage,
-        grade,
+        stage: selectedGrade.stage,
+        grade: selectedGrade.grade_code,
         subject_key,
-        subject_name,
-        subject_name_ar,
-        sort_order:
-          (subjects[curriculumId]?.length || 0) + 1,
+        subject_name: subject_name.trim(),
+        subject_name_ar: subject_name_ar.trim(),
+        sort_order: gradeSubjectsCount + 1,
+        is_active: true,
       });
 
       await loadSubjects(curriculumId);
@@ -954,9 +1031,11 @@ export function AdminContent(_: AdminPageProps) {
                     )}
 
                     {currSubjects.map(cs => {
-                      const meta =
-                        SUBJECT_META[cs.subject_key as Subject] ??
-                        SUBJECT_META.math;
+                      const meta = getSubjectMeta(
+                        cs.subject_key,
+                        cs.subject_name_ar,
+                        cs.subject_name,
+                      );
 
                       const open =
                         expandedSubject === cs.id;
