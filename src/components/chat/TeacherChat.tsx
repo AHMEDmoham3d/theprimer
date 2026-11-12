@@ -1,12 +1,19 @@
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Send, Brain, X, PanelRightClose, PanelRightOpen,
-  BookMarked, ChevronUp, ChevronDown, PenTool, Sparkles,
+  Send,
+  Brain,
+  X,
+  PanelRightClose,
+  PanelRightOpen,
+  BookMarked,
+  ChevronUp,
+  ChevronDown,
+  PenTool,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
 import { SUBJECT_META } from '@/data/subjects';
-import { SMART_QUESTIONS } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import {
   fetchStudentProgress,
@@ -92,46 +99,105 @@ const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
   },
 };
 
-function detectSubject(text: string, availableSubjects: Subject[]): Subject | null {
+function detectSubject(
+  text: string,
+  availableSubjects: Subject[]
+): Subject | null {
   if (!text || availableSubjects.length === 0) return null;
 
   const lower = text.toLowerCase();
 
   const keywords: Partial<Record<Subject, string[]>> = {
     math: [
-      'معادلة', 'رياضيات', 'حساب', 'جبر', 'تفاضل', 'تكامل',
-      'كسر', 'هندسة', 'مثلث', 'math', 'equation',
+      'معادلة',
+      'رياضيات',
+      'حساب',
+      'جبر',
+      'تفاضل',
+      'تكامل',
+      'كسر',
+      'هندسة',
+      'مثلث',
+      'math',
+      'equation',
     ],
     physics: [
-      'فيزياء', 'نيوتن', 'حركة', 'قوة', 'سرعة', 'شغل',
-      'طاقة', 'physics', 'force',
+      'فيزياء',
+      'نيوتن',
+      'حركة',
+      'قوة',
+      'سرعة',
+      'شغل',
+      'طاقة',
+      'physics',
+      'force',
     ],
     chemistry: [
-      'كيمياء', 'رابطة', 'ذرة', 'تفاعل', 'أيون',
-      'chemistry', 'atom',
+      'كيمياء',
+      'رابطة',
+      'ذرة',
+      'تفاعل',
+      'أيون',
+      'chemistry',
+      'atom',
     ],
     biology: [
-      'أحياء', 'خلية', 'انقسام', 'وراثة', 'dna',
-      'biology', 'cell',
+      'أحياء',
+      'خلية',
+      'انقسام',
+      'وراثة',
+      'dna',
+      'biology',
+      'cell',
     ],
     history: [
-      'تاريخ', 'ثورة', 'سعد زغلول', 'history', 'revolution',
+      'تاريخ',
+      'ثورة',
+      'سعد زغلول',
+      'history',
+      'revolution',
     ],
     english: [
-      'english', 'grammar', 'tense', 'writing', 'إنجليزي', 'قواعد',
+      'english',
+      'grammar',
+      'tense',
+      'writing',
+      'إنجليزي',
+      'قواعد',
     ],
     geography: [
-      'جغرافيا', 'خريطة', 'مصر', 'geography', 'map',
+      'جغرافيا',
+      'خريطة',
+      'مصر',
+      'geography',
+      'map',
     ],
   };
 
   for (const subject of availableSubjects) {
-    if (keywords[subject]?.some((kw) => lower.includes(kw))) {
+    if (keywords[subject]?.some((keyword) => lower.includes(keyword))) {
       return subject;
     }
   }
 
   return null;
+}
+
+// Supports both predefined and custom subjects added by the admin.
+function getSubjectMeta(subject: Subject) {
+  const meta = SUBJECT_META[subject];
+
+  if (meta) {
+    return meta;
+  }
+
+  return {
+    label: subject,
+    labelAr: subject,
+    icon: BookMarked,
+    accent: '#9ca3af',
+    accentSoft: '#262626',
+  };
 }
 
 export function TeacherChat({
@@ -147,6 +213,7 @@ export function TeacherChat({
   const [messages, setMessages] = useState<ChatMessage[]>(
     initialMessages || []
   );
+
   const [input, setInput] = useState('');
   const [voiceOn] = useState(true);
   const [muted] = useState(false);
@@ -163,6 +230,7 @@ export function TeacherChat({
   const [studentCurriculum, setStudentCurriculum] = useState(
     'جاري تحميل المنهج...'
   );
+
   const [studentStage, setStudentStage] = useState('');
   const [studentGrade, setStudentGrade] = useState('');
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
@@ -177,6 +245,7 @@ export function TeacherChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
 
+  // Scroll to the latest message.
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -196,13 +265,16 @@ export function TeacherChat({
       setSubjectDisplayNames({});
       setStudentStage('');
       setStudentGrade('');
+      setActiveSubject('');
       setStudentLoadError('');
 
       if (!activeStudentId) {
         setStudentCurriculum('لم يتم تحديد الطالب');
+
         setStudentLoadError(
           'معرّف الطالب غير موجود. سجّل دخول الطالب أو أكمل تسجيله أولًا.'
         );
+
         return;
       }
 
@@ -213,32 +285,26 @@ export function TeacherChat({
 
         if (!student) {
           setStudentCurriculum('تعذّر تحميل المنهج');
+
           setStudentLoadError(
             'لم نتمكن من تحميل بيانات الطالب. تأكد من تسجيل الدخول وصلاحيات قاعدة البيانات.'
           );
+
           return;
         }
 
         setStudentCurriculum(
           student.curriculum_name || 'لم يتم تحديد المنهج'
         );
+
         setStudentStage(student.stage || '');
         setStudentGrade(student.grade_code || student.grade || '');
-
-        const [progress, schedule] = await Promise.all([
-          fetchStudentProgress(activeStudentId),
-          fetchStudentSchedule(activeStudentId),
-        ]);
-
-        if (cancelled) return;
-
-        setDbProgress(progress);
-        setDbSchedule(schedule);
 
         if (!student.curriculum_id) {
           setStudentLoadError(
             'لم يتم ربط الطالب بمنهج دراسي حتى الآن.'
           );
+
           return;
         }
 
@@ -246,19 +312,24 @@ export function TeacherChat({
           setStudentLoadError(
             'المرحلة أو الصف الدراسي غير محدد في بيانات الطالب.'
           );
+
           return;
         }
 
-        const curriculumSubjects = await fetchCurriculumSubjects(
-          student.curriculum_id,
-          student.stage,
-          student.grade_code
-        );
+        const [progress, schedule, curriculumSubjects] =
+          await Promise.all([
+            fetchStudentProgress(activeStudentId),
+            fetchStudentSchedule(activeStudentId),
+            fetchCurriculumSubjects(
+              student.curriculum_id,
+              student.stage,
+              student.grade_code
+            ),
+          ]);
 
         if (cancelled) return;
 
-        // Accept every valid subject_key returned by the database.
-        // Do not restrict students to the old static ALL_SUBJECTS list.
+        // Accept every valid active subject returned by the database.
         const validRows = curriculumSubjects.filter(
           (row) =>
             typeof row.subject_key === 'string' &&
@@ -268,6 +339,20 @@ export function TeacherChat({
         const validSubjects = Array.from(
           new Set(
             validRows.map((row) => row.subject_key as Subject)
+          )
+        );
+
+        // Keep only progress and schedule records belonging to
+        // subjects that are currently active in this student's curriculum.
+        setDbProgress(
+          progress.filter((item) =>
+            validSubjects.includes(item.subject as Subject)
+          )
+        );
+
+        setDbSchedule(
+          schedule.filter((item) =>
+            validSubjects.includes(item.subject as Subject)
           )
         );
 
@@ -289,11 +374,10 @@ export function TeacherChat({
         setAvailableSubjects(validSubjects);
 
         if (validSubjects.length > 0) {
-          setActiveSubject((current) =>
-            current && validSubjects.includes(current) ? current : validSubjects[0]
-          );
+          setActiveSubject(validSubjects[0]);
         } else {
           setActiveSubject('');
+
           setStudentLoadError(
             'لم يتم العثور على مواد نشطة مسجلة لهذا المنهج والمرحلة والصف. اطلب من مسؤول النظام إضافة المواد من صفحة الأدمن.'
           );
@@ -303,6 +387,7 @@ export function TeacherChat({
 
         if (!cancelled) {
           setStudentCurriculum('تعذّر تحميل المنهج');
+
           setStudentLoadError(
             'حدث خطأ أثناء تحميل بيانات الطالب والمنهج.'
           );
@@ -321,7 +406,11 @@ export function TeacherChat({
   useEffect(() => {
     let cancelled = false;
 
-    if (!activeStudentId || !activeSubject || !availableSubjects.includes(activeSubject)) {
+    if (
+      !activeStudentId ||
+      !activeSubject ||
+      !availableSubjects.includes(activeSubject)
+    ) {
       setDbLessons([]);
       return;
     }
@@ -332,7 +421,9 @@ export function TeacherChat({
           setDbLessons(res || []);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('Failed to load lesson mastery:', error);
+
         if (!cancelled) {
           setDbLessons([]);
         }
@@ -343,6 +434,7 @@ export function TeacherChat({
     };
   }, [activeStudentId, activeSubject, availableSubjects]);
 
+  // Stop audio and invalidate pending requests when the component unmounts.
   useEffect(() => {
     return () => {
       requestIdRef.current++;
@@ -351,14 +443,24 @@ export function TeacherChat({
   }, []);
 
   const currentActiveLesson = useMemo(() => {
-    return dbLessons.find((lesson) => lesson.unlocked && !lesson.exam_passed)
-      || dbLessons[0];
+    return (
+      dbLessons.find(
+        (lesson) => lesson.unlocked && !lesson.exam_passed
+      ) || dbLessons[0]
+    );
   }, [dbLessons]);
 
   // Use database names for dynamic subjects and existing metadata for known ones.
   const activeBaseMeta = activeSubject
-    ? SUBJECT_META[activeSubject]
-    : { label: 'No subject selected', labelAr: 'لم يتم تحديد مادة', icon: BookMarked, accent: '#9ca3af', accentSoft: '#262626' };
+    ? getSubjectMeta(activeSubject)
+    : {
+        label: 'No subject selected',
+        labelAr: 'لم يتم تحديد مادة',
+        icon: BookMarked,
+        accent: '#9ca3af',
+        accentSoft: '#262626',
+      };
+
   const activeSubjectNames = activeSubject
     ? subjectDisplayNames[activeSubject]
     : undefined;
@@ -380,6 +482,7 @@ export function TeacherChat({
       setStudentLoadError(
         'لا يمكن إرسال السؤال قبل تحديد الطالب. سجّل دخول الطالب أولًا.'
       );
+
       return;
     }
 
@@ -387,17 +490,21 @@ export function TeacherChat({
       setStudentLoadError(
         'لا توجد مواد متاحة لهذا الطالب حتى الآن. راجع المنهج والمرحلة والصف المسجلين.'
       );
+
       return;
     }
 
     // Keep the detected subject inside the student's available curriculum.
     const detectedSubject = detectSubject(content, availableSubjects);
-    const selectedSubject = detectedSubject
-      || (activeSubject && availableSubjects.includes(activeSubject)
+
+    const selectedSubject =
+      detectedSubject ||
+      (activeSubject && availableSubjects.includes(activeSubject)
         ? activeSubject
         : availableSubjects[0]);
 
     const currentRequestId = ++requestIdRef.current;
+
     stopTutorAudio();
 
     setActiveSubject(selectedSubject);
@@ -413,9 +520,11 @@ export function TeacherChat({
     };
 
     const currentWb =
-      DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject]
-      || {
-        title: `شرح مادة ${subjectDisplayNames[selectedSubject]?.labelAr || selectedSubject}`,
+      DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject] || {
+        title: `شرح مادة ${
+          subjectDisplayNames[selectedSubject]?.labelAr ||
+          selectedSubject
+        }`,
         steps: [
           '1. تحديد الفكرة أو السؤال المطلوب فهمه',
           '2. شرح المفهوم خطوة بخطوة مع أمثلة مناسبة',
@@ -447,6 +556,7 @@ export function TeacherChat({
       studentMsg,
       aiMsg,
     ]);
+
     setInput('');
     setTyping(true);
     setDrawing(false);
@@ -454,12 +564,14 @@ export function TeacherChat({
     let responseText = '';
     let receivedFirstChunk = false;
 
+    // Send the actual curriculum, stage, and grade as context.
     const gradeContext = [
+      studentCurriculum,
       studentStage,
       studentGrade,
-    ].filter(Boolean).join(' - ') || 'غير محدد';
-
-    const curriculumContext = studentCurriculum;
+    ]
+      .filter(Boolean)
+      .join(' - ') || 'غير محدد';
 
     try {
       responseText = await askAITutor(
@@ -467,7 +579,9 @@ export function TeacherChat({
         {
           name: studentName,
           grade: gradeContext,
-          weakTopics: dbProgress.map((progress) => progress.subject),
+          weakTopics: dbProgress.map(
+            (progress) => progress.subject
+          ),
         },
         (chunk) => {
           if (currentRequestId !== requestIdRef.current) return;
@@ -480,7 +594,10 @@ export function TeacherChat({
           setMessages((currentMessages) =>
             currentMessages.map((message) =>
               message.id === messageId
-                ? { ...message, text: message.text + chunk }
+                ? {
+                    ...message,
+                    text: message.text + chunk,
+                  }
                 : message
             )
           );
@@ -493,7 +610,10 @@ export function TeacherChat({
       setMessages((currentMessages) =>
         currentMessages.map((message) =>
           message.id === messageId
-            ? { ...message, text: responseText }
+            ? {
+                ...message,
+                text: responseText,
+              }
             : message
         )
       );
@@ -508,7 +628,10 @@ export function TeacherChat({
         setMessages((currentMessages) =>
           currentMessages.map((message) =>
             message.id === messageId
-              ? { ...message, text: responseText }
+              ? {
+                  ...message,
+                  text: responseText,
+                }
               : message
           )
         );
@@ -531,43 +654,39 @@ export function TeacherChat({
     if (currentRequestId === requestIdRef.current) {
       setDrawing(false);
     }
-
-    // Keep curriculumContext available for curriculum-aware prompts later.
-    void curriculumContext;
   };
-
-  const suggestedQuestions = useMemo(() => {
-    return SMART_QUESTIONS
-      .filter((question) => question.subject === activeSubject)
-      .slice(0, 3);
-  }, [activeSubject]);
 
   const voiceActive = voiceOn && !muted;
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col md:flex-row gap-3">
-      <div className="flex flex-1 flex-col rounded-2xl border border-[#2a2a2a] bg-[#141414] overflow-hidden min-h-0">
-        <div className="flex items-center gap-3 border-b border-[#2a2a2a] px-4 py-3 bg-gradient-to-l from-[#1a1a1a] to-[#141414]">
+    <div className="flex h-[calc(100vh-8rem)] flex-col gap-3 md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#141414]">
+        <div className="flex items-center gap-3 border-b border-[#2a2a2a] bg-gradient-to-l from-[#1a1a1a] to-[#141414] px-4 py-3">
           <div className="relative shrink-0">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-neutral-600 to-neutral-900 border border-neutral-500 text-white font-bold text-base">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full border border-neutral-500 bg-gradient-to-br from-neutral-600 to-neutral-900 text-base font-bold text-white">
               P
             </div>
+
             <div className="absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-[#141414] bg-green-500" />
           </div>
 
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-bold text-white truncate">
-                {activeSubject ? `مدرّسك في ${activeMeta.labelAr}` : 'مدرّسك الشخصي'}
+          <div className="flex min-w-0 flex-col">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-sm font-bold text-white">
+                {activeSubject
+                  ? `مدرّسك في ${activeMeta.labelAr}`
+                  : 'مدرّسك الشخصي'}
               </span>
 
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] font-medium border border-emerald-500/20">
-                <BookMarked size={10} /> {studentCurriculum}
+              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                <BookMarked size={10} />
+                {studentCurriculum}
               </span>
             </div>
 
-            <span className="text-xs text-green-400 flex items-center gap-1 mt-0.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="mt-0.5 flex items-center gap-1 text-xs text-green-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+
               {typing
                 ? 'بجهز الإجابة...'
                 : voiceActive
@@ -579,8 +698,12 @@ export function TeacherChat({
           <div className="mr-auto flex items-center gap-2">
             <button
               onClick={() => setPanelOpen(!panelOpen)}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-neutral-800 text-neutral-300 hover:text-white transition"
-              aria-label={panelOpen ? 'إغلاق تفاصيل المنهج' : 'عرض تفاصيل المنهج'}
+              className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:text-white"
+              aria-label={
+                panelOpen
+                  ? 'إغلاق تفاصيل المنهج'
+                  : 'عرض تفاصيل المنهج'
+              }
             >
               {panelOpen ? (
                 <PanelRightClose size={14} />
@@ -602,12 +725,14 @@ export function TeacherChat({
 
         <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {availableSubjects.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-amber-300">لا توجد مواد مضافة لهذا الصف حتى الآن.</p>
+            <p className="px-2 py-1 text-xs text-amber-300">
+              لا توجد مواد مضافة لهذا الصف حتى الآن.
+            </p>
           ) : subjectBarOpen ? (
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-1">
+              <div className="scrollbar-thin flex flex-1 items-center gap-2 overflow-x-auto">
                 {availableSubjects.map((subj) => {
-                  const baseMeta = SUBJECT_META[subj];
+                  const baseMeta = getSubjectMeta(subj);
                   const names = subjectDisplayNames[subj];
 
                   const meta = {
@@ -624,7 +749,7 @@ export function TeacherChat({
                       key={subj}
                       onClick={() => setActiveSubject(subj)}
                       className={cn(
-                        'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition shrink-0',
+                        'flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition',
                         isActive
                           ? 'border-transparent text-white'
                           : 'border-[#2a2a2a] text-neutral-500 hover:text-neutral-300'
@@ -638,7 +763,11 @@ export function TeacherChat({
                           : undefined
                       }
                     >
-                      <Icon size={14} style={{ color: meta.accent }} />
+                      <Icon
+                        size={14}
+                        style={{ color: meta.accent }}
+                      />
+
                       {meta.labelAr}
                     </button>
                   );
@@ -658,8 +787,15 @@ export function TeacherChat({
               onClick={() => setSubjectBarOpen(true)}
               className="flex items-center gap-2 text-xs text-neutral-500"
             >
-              <ActiveIcon size={14} style={{ color: activeMeta.accent }} />
-              <span className="font-medium">{activeMeta.labelAr}</span>
+              <ActiveIcon
+                size={14}
+                style={{ color: activeMeta.accent }}
+              />
+
+              <span className="font-medium">
+                {activeMeta.labelAr}
+              </span>
+
               <ChevronDown size={14} />
             </button>
           )}
@@ -667,30 +803,36 @@ export function TeacherChat({
 
         <div
           ref={scrollRef}
-          className="flex-1 space-y-4 overflow-y-auto p-4 min-h-0"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
         >
           {availableSubjects.length === 0 && messages.length === 0 && (
             <div className="mx-auto max-w-md rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-center text-sm leading-7 text-neutral-300">
-              لا توجد مواد دراسية متاحة لحسابك حاليًا. بمجرد أن يضيف مسؤول النظام مادة من صفحة الأدمن، ستظهر هنا تلقائيًا.
+              لا توجد مواد دراسية متاحة لحسابك حاليًا. بمجرد أن يضيف
+              مسؤول النظام مادة من صفحة الأدمن، ستظهر هنا تلقائيًا.
             </div>
           )}
 
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+            />
           ))}
 
           {typing && (
-            <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-white font-bold">
+            <div className="flex items-center gap-2 text-xs text-neutral-500">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 font-bold text-white">
                 P
               </div>
 
               <div className="flex gap-1 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" />
+
                 <span
                   className="h-2 w-2 animate-bounce rounded-full bg-neutral-500"
                   style={{ animationDelay: '150ms' }}
                 />
+
                 <span
                   className="h-2 w-2 animate-bounce rounded-full bg-neutral-500"
                   style={{ animationDelay: '300ms' }}
@@ -700,38 +842,19 @@ export function TeacherChat({
           )}
 
           {drawing && (
-            <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 text-white font-bold">
+            <div className="flex items-center gap-2 text-xs text-neutral-500">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 font-bold text-white">
                 P
               </div>
 
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
-                <PenTool size={14} className="text-emerald-400 animate-pulse" />
+                <PenTool className="animate-pulse text-emerald-400" size={14} />
+
                 <span>جاري إعداد السبورة التفاعلية...</span>
               </div>
             </div>
           )}
         </div>
-
-        {messages.length <= 4 && (
-          <div className="border-t border-[#2a2a2a] px-4 py-3">
-            <p className="text-[10px] text-neutral-500 mb-2 flex items-center gap-1">
-              <Sparkles size={12} className="text-amber-400" /> أسئلة مقترحة
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {suggestedQuestions.map((question) => (
-                <button
-                  key={question.question}
-                  onClick={() => void send(question.question)}
-                  className="rounded-lg border border-[#2a2a2a] bg-[#1c1c1c] px-3 py-1.5 text-xs text-neutral-300 hover:text-white"
-                >
-                  {question.question}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="border-t border-[#2a2a2a] p-3">
           <div className="flex items-center gap-2">
@@ -744,7 +867,11 @@ export function TeacherChat({
                   void send();
                 }
               }}
-              placeholder={availableSubjects.length > 0 ? 'اسأل مدرّسك...' : 'لا توجد مواد متاحة حاليًا'}
+              placeholder={
+                availableSubjects.length > 0
+                  ? 'اسأل مدرّسك...'
+                  : 'لا توجد مواد متاحة حاليًا'
+              }
               disabled={availableSubjects.length === 0}
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
@@ -763,10 +890,13 @@ export function TeacherChat({
 
       {panelOpen && (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-[#2a2a2a] bg-[#141414] p-4 md:static md:w-72 md:rounded-2xl">
-          <div className="flex items-center justify-between mb-3">
+          <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Brain size={16} className="text-emerald-400" />
-              <h3 className="text-sm font-bold text-white">تفاصيل المنهج</h3>
+
+              <h3 className="text-sm font-bold text-white">
+                تفاصيل المنهج
+              </h3>
             </div>
 
             <button
@@ -778,7 +908,7 @@ export function TeacherChat({
             </button>
           </div>
 
-          <div className="rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3 space-y-2">
+          <div className="space-y-2 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
             <p className="text-xs font-bold text-emerald-400">
               {studentCurriculum}
             </p>
@@ -819,20 +949,30 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const isAI = message?.role === 'ai';
 
   return (
-    <div className={cn('flex gap-2', isAI ? 'justify-start' : 'justify-end')}>
+    <div
+      className={cn(
+        'flex gap-2',
+        isAI ? 'justify-start' : 'justify-end'
+      )}
+    >
       {isAI && (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-neutral-600 to-neutral-900 border border-neutral-600 text-xs font-bold text-white">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-600 bg-gradient-to-br from-neutral-600 to-neutral-900 text-xs font-bold text-white">
           P
         </div>
       )}
 
-      <div className={cn('max-w-[80%] space-y-3', !isAI && 'items-end')}>
+      <div
+        className={cn(
+          'max-w-[80%] space-y-3',
+          !isAI && 'items-end'
+        )}
+      >
         <div
           className={cn(
             'rounded-2xl px-4 py-3 text-sm leading-relaxed',
             isAI
               ? 'bg-[#1c1c1c] text-neutral-100'
-              : 'bg-white text-black mr-auto'
+              : 'mr-auto bg-white text-black'
           )}
         >
           {message?.text || ''}
