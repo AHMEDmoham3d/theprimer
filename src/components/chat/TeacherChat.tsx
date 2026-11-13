@@ -1,5 +1,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Send,
   Brain,
@@ -27,13 +29,6 @@ import {
 } from '@/lib/db';
 import { askAITutor } from '@/lib/ai';
 import { playTutorAudio, stopTutorAudio } from '@/lib/tts';
-import {
-  getOrCreateTutorConversation,
-  fetchTutorMessages,
-  saveTutorMessage,
-  updateTutorConversationProgress,
-  type TutorConversationRow,
-} from '@/lib/tutorConversations';
 
 interface TeacherChatProps {
   messages: ChatMessage[];
@@ -106,6 +101,90 @@ const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
   },
 };
 
+function detectSubject(
+  text: string,
+  availableSubjects: Subject[]
+): Subject | null {
+  if (!text || availableSubjects.length === 0) return null;
+
+  const lower = text.toLowerCase();
+
+  const keywords: Partial<Record<Subject, string[]>> = {
+    math: [
+      'معادلة',
+      'رياضيات',
+      'حساب',
+      'جبر',
+      'تفاضل',
+      'تكامل',
+      'كسر',
+      'هندسة',
+      'مثلث',
+      'math',
+      'equation',
+    ],
+    physics: [
+      'فيزياء',
+      'نيوتن',
+      'حركة',
+      'قوة',
+      'سرعة',
+      'شغل',
+      'طاقة',
+      'physics',
+      'force',
+    ],
+    chemistry: [
+      'كيمياء',
+      'رابطة',
+      'ذرة',
+      'تفاعل',
+      'أيون',
+      'chemistry',
+      'atom',
+    ],
+    biology: [
+      'أحياء',
+      'خلية',
+      'انقسام',
+      'وراثة',
+      'dna',
+      'biology',
+      'cell',
+    ],
+    history: [
+      'تاريخ',
+      'ثورة',
+      'سعد زغلول',
+      'history',
+      'revolution',
+    ],
+    english: [
+      'english',
+      'grammar',
+      'tense',
+      'writing',
+      'إنجليزي',
+      'قواعد',
+    ],
+    geography: [
+      'جغرافيا',
+      'خريطة',
+      'مصر',
+      'geography',
+      'map',
+    ],
+  };
+
+  for (const subject of availableSubjects) {
+    if (keywords[subject]?.some((keyword) => lower.includes(keyword))) {
+      return subject;
+    }
+  }
+
+  return null;
+}
+
 // Supports both predefined and custom subjects added by the admin.
 function getSubjectMeta(subject: Subject) {
   const meta = SUBJECT_META[subject];
@@ -164,13 +243,9 @@ export function TeacherChat({
   >({});
 
   const [studentLoadError, setStudentLoadError] = useState('');
-  const [conversation, setConversation] =
-    useState<TutorConversationRow | null>(null);
-  const [conversationLoading, setConversationLoading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
-  const autoStartedConversationsRef = useRef<Set<string>>(new Set());
 
   // Scroll to the latest message.
   useEffect(() => {
@@ -329,80 +404,6 @@ export function TeacherChat({
     };
   }, [activeStudentId]);
 
-  // Load a separate saved conversation whenever the selected subject changes.
-  useEffect(() => {
-    let cancelled = false;
-    const currentRequestId = ++requestIdRef.current;
-
-    stopTutorAudio();
-    setMessages([]);
-    setConversation(null);
-    setConversationLoading(false);
-    setTyping(false);
-    setDrawing(false);
-
-    if (
-      !activeStudentId ||
-      !activeSubject ||
-      !availableSubjects.includes(activeSubject)
-    ) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    async function loadConversation() {
-      setConversationLoading(true);
-      setStudentLoadError('');
-
-      try {
-        const result = await getOrCreateTutorConversation(
-          activeStudentId,
-          activeSubject
-        );
-
-        if (cancelled || currentRequestId !== requestIdRef.current) return;
-
-        const savedMessages = await fetchTutorMessages(
-          result.conversation.id
-        );
-
-        if (cancelled || currentRequestId !== requestIdRef.current) return;
-
-        setConversation(result.conversation);
-        setMessages(
-          savedMessages.map((message) => ({
-            id: message.id,
-            role: message.role === 'assistant' ? 'ai' : 'student',
-            text: message.content,
-            timestamp: new Date(message.created_at).toLocaleTimeString(
-              'ar-EG',
-              { hour: '2-digit', minute: '2-digit' }
-            ),
-          }))
-        );
-      } catch (error) {
-        console.error('Failed to load tutor conversation:', error);
-
-        if (!cancelled && currentRequestId === requestIdRef.current) {
-          setStudentLoadError(
-            'تعذّر تحميل محادثة المادة. راجع اتصال قاعدة البيانات وصلاحيات جداول المحادثات.'
-          );
-        }
-      } finally {
-        if (!cancelled && currentRequestId === requestIdRef.current) {
-          setConversationLoading(false);
-        }
-      }
-    }
-
-    void loadConversation();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeStudentId, activeSubject, availableSubjects]);
-
   // Load lesson mastery only when a real student and a valid subject exist.
   useEffect(() => {
     let cancelled = false;
@@ -474,41 +475,58 @@ export function TeacherChat({
 
   const ActiveIcon = activeMeta.icon;
 
-  const getGradeContext = () => {
-    return [
-      studentCurriculum,
-      studentStage,
-      studentGrade,
-    ]
-      .filter(Boolean)
-      .join(' - ') || 'غير محدد';
-  };
+  const send = async (text?: string) => {
+    const content = (text ?? input).trim();
 
-  const getSubjectContext = () => ({
-    name: studentName,
-    grade: getGradeContext(),
-    stage: studentStage,
-    curriculum: studentCurriculum,
-    subject: activeSubject || undefined,
-    subjectName: activeMeta.labelAr,
-    weakTopics: dbProgress
-      .filter((progress) => progress.subject === activeSubject)
-      .flatMap((progress) => progress.weaknesses || []),
-  });
+    if (!content) return;
 
-  const getConversationHistory = () =>
-    messages
-      .filter((message) => message.text?.trim())
-      .map((message) => ({
-        role: message.role === 'ai' ? 'assistant' as const : 'user' as const,
-        content: message.text,
-      }))
-      .slice(-30);
+    if (!activeStudentId) {
+      setStudentLoadError(
+        'لا يمكن إرسال السؤال قبل تحديد الطالب. سجّل دخول الطالب أولًا.'
+      );
 
-  const createAssistantMessage = (id: string): ChatMessage => {
+      return;
+    }
+
+    if (availableSubjects.length === 0) {
+      setStudentLoadError(
+        'لا توجد مواد متاحة لهذا الطالب حتى الآن. راجع المنهج والمرحلة والصف المسجلين.'
+      );
+
+      return;
+    }
+
+    // Keep the detected subject inside the student's available curriculum.
+    const detectedSubject = detectSubject(content, availableSubjects);
+
+    const selectedSubject =
+      detectedSubject ||
+      (activeSubject && availableSubjects.includes(activeSubject)
+        ? activeSubject
+        : availableSubjects[0]);
+
+    const currentRequestId = ++requestIdRef.current;
+
+    stopTutorAudio();
+
+    setActiveSubject(selectedSubject);
+
+    const studentMsg: ChatMessage = {
+      id: `s-${Date.now()}`,
+      role: 'student',
+      text: content,
+      timestamp: new Date().toLocaleTimeString('ar-EG', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    };
+
     const currentWb =
-      (activeSubject && DYNAMIC_SUBJECT_WHITEBOARDS[activeSubject]) || {
-        title: `شرح مادة ${activeMeta.labelAr}`,
+      DYNAMIC_SUBJECT_WHITEBOARDS[selectedSubject] || {
+        title: `شرح مادة ${
+          subjectDisplayNames[selectedSubject]?.labelAr ||
+          selectedSubject
+        }`,
         steps: [
           '1. تحديد الفكرة أو السؤال المطلوب فهمه',
           '2. شرح المفهوم خطوة بخطوة مع أمثلة مناسبة',
@@ -516,8 +534,11 @@ export function TeacherChat({
         ],
       };
 
-    return {
-      id,
+    const messageId = `a-${Date.now()}-${currentRequestId}`;
+    const useVoice = voiceOn && !muted;
+
+    const aiMsg: ChatMessage = {
+      id: messageId,
       role: 'ai',
       text: '',
       timestamp: new Date().toLocaleTimeString('ar-EG', {
@@ -531,33 +552,39 @@ export function TeacherChat({
           ChatMessage['whiteboardSteps']
         >,
     };
-  };
-
-  const runTutorResponse = async (
-    prompt: string,
-    options: {
-      isFirstMessage: boolean;
-      history: { role: 'user' | 'assistant'; content: string }[];
-      conversationRow: TutorConversationRow;
-      messageId: string;
-    }
-  ) => {
-    const currentRequestId = requestIdRef.current;
-    const useVoice = voiceOn && !muted;
-    let responseText = '';
-    let receivedFirstChunk = false;
 
     setMessages((currentMessages) => [
       ...currentMessages,
-      createAssistantMessage(options.messageId),
+      studentMsg,
+      aiMsg,
     ]);
+
+    setInput('');
     setTyping(true);
     setDrawing(false);
 
+    let responseText = '';
+    let receivedFirstChunk = false;
+
+    // Send the actual curriculum, stage, and grade as context.
+    const gradeContext = [
+      studentCurriculum,
+      studentStage,
+      studentGrade,
+    ]
+      .filter(Boolean)
+      .join(' - ') || 'غير محدد';
+
     try {
       responseText = await askAITutor(
-        prompt,
-        getSubjectContext(),
+        content,
+        {
+          name: studentName,
+          grade: gradeContext,
+          weakTopics: dbProgress.map(
+            (progress) => progress.subject
+          ),
+        },
         (chunk) => {
           if (currentRequestId !== requestIdRef.current) return;
 
@@ -568,69 +595,45 @@ export function TeacherChat({
 
           setMessages((currentMessages) =>
             currentMessages.map((message) =>
-              message.id === options.messageId
-                ? { ...message, text: message.text + chunk }
+              message.id === messageId
+                ? {
+                    ...message,
+                    text: message.text + chunk,
+                  }
                 : message
             )
           );
-        },
-        {
-          conversationHistory: options.history,
-          isFirstMessage: options.isFirstMessage,
-          lastLessonTitle:
-            options.conversationRow.last_lesson_title ||
-            currentActiveLesson?.lesson_title ||
-            null,
-          lastTopic: options.conversationRow.last_topic || null,
         }
       );
 
       if (currentRequestId !== requestIdRef.current) return;
 
+      // Keep the final answer exactly as returned by the AI helper.
       setMessages((currentMessages) =>
         currentMessages.map((message) =>
-          message.id === options.messageId
-            ? { ...message, text: responseText }
+          message.id === messageId
+            ? {
+                ...message,
+                text: responseText,
+              }
             : message
         )
       );
-
-      await saveTutorMessage({
-        conversationId: options.conversationRow.id,
-        role: 'assistant',
-        content: responseText,
-      });
-
-      if (currentActiveLesson) {
-        await updateTutorConversationProgress(
-          options.conversationRow.id,
-          {
-            last_lesson_id: currentActiveLesson.lesson_id,
-            last_lesson_title: currentActiveLesson.lesson_title,
-          }
-        );
-        setConversation((current) =>
-          current?.id === options.conversationRow.id
-            ? {
-                ...current,
-                last_lesson_id: currentActiveLesson.lesson_id,
-                last_lesson_title: currentActiveLesson.lesson_title,
-              }
-            : current
-        );
-      }
     } catch (error) {
-      console.error('Tutor response error:', error);
+      console.warn('AI call error:', error);
+
+      responseText =
+        `يا ${studentName}، أنا معاك في ${activeMeta.labelAr}! ` +
+        'حصلت مشكلة أثناء تجهيز الإجابة. جرّب تبعت سؤالك تاني بعد قليل.';
 
       if (currentRequestId === requestIdRef.current) {
-        const fallback =
-          `يا ${studentName}، حصلت مشكلة أثناء تجهيز الإجابة. ` +
-          'جرّب تاني بعد قليل.';
-
         setMessages((currentMessages) =>
           currentMessages.map((message) =>
-            message.id === options.messageId
-              ? { ...message, text: fallback }
+            message.id === messageId
+              ? {
+                  ...message,
+                  text: responseText,
+                }
               : message
           )
         );
@@ -652,135 +655,6 @@ export function TeacherChat({
 
     if (currentRequestId === requestIdRef.current) {
       setDrawing(false);
-    }
-  };
-
-  // The tutor opens the conversation proactively once per subject visit.
-  useEffect(() => {
-    if (
-      conversationLoading ||
-      !conversation ||
-      !activeSubject ||
-      !availableSubjects.includes(activeSubject) ||
-      autoStartedConversationsRef.current.has(conversation.id)
-    ) {
-      return;
-    }
-
-    autoStartedConversationsRef.current.add(conversation.id);
-
-    const isFirstMessage = messages.length === 0;
-    const prompt = isFirstMessage
-      ? 'ابدأ أول حصة مع الطالب الآن. رحّب به باسمه، وابدأ تدريسه في المادة المحددة من منهجه الحالي بطريقة تفاعلية، ولا تنتظر أن يرسل سؤالًا.'
-      : 'ابدأ الجلسة مع الطالب الآن، واستأنف الشرح من آخر درس وآخر نقطة محفوظة في هذه المحادثة. راجع سياق الرسائل السابقة ولا تكرر المقدمة.';
-
-    const currentRequestId = ++requestIdRef.current;
-    stopTutorAudio();
-
-    void runTutorResponse(prompt, {
-      isFirstMessage,
-      history: getConversationHistory(),
-      conversationRow: conversation,
-      messageId: `auto-${conversation.id}-${currentRequestId}`,
-    });
-  }, [
-    conversation,
-    conversationLoading,
-    activeSubject,
-    availableSubjects,
-    messages.length,
-    currentActiveLesson,
-  ]);
-
-  const send = async (text?: string) => {
-    const content = (text ?? input).trim();
-
-    if (!content) return;
-
-    if (!activeStudentId) {
-      setStudentLoadError(
-        'لا يمكن إرسال السؤال قبل تحديد الطالب. سجّل دخول الطالب أولًا.'
-      );
-      return;
-    }
-
-    if (!activeSubject || !availableSubjects.includes(activeSubject)) {
-      setStudentLoadError('اختار مادة متاحة الأول علشان أقدر أساعدك فيها.');
-      return;
-    }
-
-    if (conversationLoading || !conversation) {
-      setStudentLoadError('محادثة المادة لسه بتتحمّل. استنى لحظة وجرب تاني.');
-      return;
-    }
-
-    const currentRequestId = ++requestIdRef.current;
-    stopTutorAudio();
-
-    const studentMsg: ChatMessage = {
-      id: `s-${Date.now()}`,
-      role: 'student',
-      text: content,
-      timestamp: new Date().toLocaleTimeString('ar-EG', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    };
-
-    setMessages((currentMessages) => [...currentMessages, studentMsg]);
-    setInput('');
-    setTyping(true);
-    setDrawing(false);
-    setStudentLoadError('');
-
-    try {
-      await saveTutorMessage({
-        conversationId: conversation.id,
-        role: 'student',
-        content,
-      });
-
-      if (currentRequestId !== requestIdRef.current) return;
-
-      // The current prompt is sent separately to the API, so history
-      // contains only messages that came before this prompt.
-      const history = getConversationHistory();
-      const messageId = `a-${Date.now()}-${currentRequestId}`;
-
-      await runTutorResponse(content, {
-        isFirstMessage: false,
-        history,
-        conversationRow: conversation,
-        messageId,
-      });
-
-      if (currentActiveLesson) {
-        await updateTutorConversationProgress(conversation.id, {
-          last_lesson_id: currentActiveLesson.lesson_id,
-          last_lesson_title: currentActiveLesson.lesson_title,
-          last_topic: content.slice(0, 200),
-        });
-
-        setConversation((current) =>
-          current?.id === conversation.id
-            ? {
-                ...current,
-                last_lesson_id: currentActiveLesson.lesson_id,
-                last_lesson_title: currentActiveLesson.lesson_title,
-                last_topic: content.slice(0, 200),
-              }
-            : current
-        );
-      }
-    } catch (error) {
-      console.error('Failed to send or save student message:', error);
-
-      if (currentRequestId === requestIdRef.current) {
-        setTyping(false);
-        setStudentLoadError(
-          'حصلت مشكلة في حفظ رسالتك. حاول تبعتها مرة تانية.'
-        );
-      }
     }
   };
 
@@ -940,12 +814,6 @@ export function TeacherChat({
             </div>
           )}
 
-          {conversationLoading && (
-            <div className="rounded-xl border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-center text-xs text-neutral-400">
-              جاري تحميل محادثة {activeMeta.labelAr}...
-            </div>
-          )}
-
           {messages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -1006,22 +874,13 @@ export function TeacherChat({
                   ? 'اسأل مدرّسك...'
                   : 'لا توجد مواد متاحة حاليًا'
               }
-              disabled={
-                availableSubjects.length === 0 ||
-                conversationLoading ||
-                typing
-              }
+              disabled={availableSubjects.length === 0}
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
 
             <button
               onClick={() => void send()}
-              disabled={
-                !input.trim() ||
-                availableSubjects.length === 0 ||
-                conversationLoading ||
-                typing
-              }
+              disabled={!input.trim() || availableSubjects.length === 0}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
               aria-label="إرسال السؤال"
             >
@@ -1106,19 +965,122 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
       <div
         className={cn(
-          'max-w-[80%] space-y-3',
+          'max-w-[80%] min-w-0 space-y-3',
           !isAI && 'items-end'
         )}
       >
         <div
+          dir="auto"
           className={cn(
-            'rounded-2xl px-4 py-3 text-sm leading-relaxed',
+            'min-w-0 break-words rounded-2xl px-4 py-3 text-sm leading-8',
             isAI
-              ? 'bg-[#1c1c1c] text-neutral-100'
-              : 'mr-auto bg-white text-black'
+              ? 'bg-[#1c1c1c] text-right text-neutral-100'
+              : 'mr-auto bg-white text-right text-black'
           )}
         >
-          {message?.text || ''}
+          {isAI ? (
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => (
+                  <h1 className="mb-3 mt-4 text-xl font-bold text-white first:mt-0">
+                    {children}
+                  </h1>
+                ),
+                h2: ({ children }) => (
+                  <h2 className="mb-3 mt-4 text-lg font-bold text-white first:mt-0">
+                    {children}
+                  </h2>
+                ),
+                h3: ({ children }) => (
+                  <h3 className="mb-2 mt-4 text-base font-bold text-emerald-400 first:mt-0">
+                    {children}
+                  </h3>
+                ),
+                p: ({ children }) => (
+                  <p className="mb-3 whitespace-pre-wrap leading-8 last:mb-0">
+                    {children}
+                  </p>
+                ),
+                ul: ({ children }) => (
+                  <ul className="mb-3 list-disc space-y-2 pr-6 last:mb-0">
+                    {children}
+                  </ul>
+                ),
+                ol: ({ children }) => (
+                  <ol className="mb-3 list-decimal space-y-2 pr-6 last:mb-0">
+                    {children}
+                  </ol>
+                ),
+                li: ({ children }) => (
+                  <li className="pr-1 leading-8">{children}</li>
+                ),
+                strong: ({ children }) => (
+                  <strong className="font-bold text-emerald-400">
+                    {children}
+                  </strong>
+                ),
+                em: ({ children }) => (
+                  <em className="italic text-neutral-300">{children}</em>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="my-3 border-r-4 border-emerald-500 pr-3 text-neutral-300">
+                    {children}
+                  </blockquote>
+                ),
+                code: ({ children }) => (
+                  <code className="rounded bg-black/40 px-1.5 py-1 text-emerald-300">
+                    {children}
+                  </code>
+                ),
+                pre: ({ children }) => (
+                  <pre
+                    dir="ltr"
+                    className="my-3 max-w-full overflow-x-auto rounded-xl bg-black p-4 text-left text-sm leading-7 text-emerald-300"
+                  >
+                    {children}
+                  </pre>
+                ),
+                hr: () => <hr className="my-4 border-neutral-700" />,
+                table: ({ children }) => (
+                  <div className="my-3 max-w-full overflow-x-auto">
+                    <table className="w-full border-collapse text-right text-sm">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-neutral-800">{children}</thead>
+                ),
+                th: ({ children }) => (
+                  <th className="border border-neutral-700 px-3 py-2 font-bold">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="border border-neutral-700 px-3 py-2">
+                    {children}
+                  </td>
+                ),
+                a: ({ children, href }) => (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 underline underline-offset-2"
+                  >
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {message?.text || ''}
+            </ReactMarkdown>
+          ) : (
+            <p className="whitespace-pre-wrap leading-8">
+              {message?.text || ''}
+            </p>
+          )}
         </div>
 
         {message?.hasWhiteboard && message?.whiteboardSteps && (
