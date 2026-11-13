@@ -5,13 +5,27 @@ export interface StudentContext {
   stage?: string;
   curriculum?: string;
   subject?: string;
+  subjectName?: string;
   weakTopics: string[];
+}
+
+export interface TutorAIMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface TutorAIOptions {
+  conversationHistory?: TutorAIMessage[];
+  isFirstMessage?: boolean;
+  lastLessonTitle?: string | null;
+  lastTopic?: string | null;
 }
 
 export async function askAITutor(
   prompt: string,
   studentContext?: StudentContext,
-  onChunk?: (chunk: string) => void
+  onChunk?: (chunk: string) => void,
+  options?: TutorAIOptions
 ): Promise<string> {
   const res = await fetch('/api/ask-ai', {
     method: 'POST',
@@ -21,14 +35,23 @@ export async function askAITutor(
     body: JSON.stringify({
       prompt,
       studentContext,
+      conversationHistory: options?.conversationHistory || [],
+      tutorOptions: {
+        isFirstMessage: options?.isFirstMessage ?? false,
+        lastLessonTitle: options?.lastLessonTitle || null,
+        lastTopic: options?.lastTopic || null,
+      },
     }),
   });
 
   if (!res.ok) {
     const data = await res.json().catch(() => null);
+
     console.error('AI backend error:', res.status, data);
 
-    throw new Error('The AI backend could not complete the request');
+    throw new Error(
+      data?.error || 'The AI backend could not complete the request'
+    );
   }
 
   if (!res.body) {
@@ -75,7 +98,10 @@ export async function askAITutor(
             onChunk?.(chunk);
           }
         } catch (error) {
-          console.warn('Could not parse an AI stream event:', error);
+          console.warn(
+            'Could not parse an AI stream event:',
+            error
+          );
         }
       }
     }
