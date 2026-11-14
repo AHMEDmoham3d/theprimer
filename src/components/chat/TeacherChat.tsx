@@ -12,6 +12,9 @@ import {
   ChevronUp,
   ChevronDown,
   PenTool,
+  Mic,
+  MicOff,
+  Volume2,
 } from 'lucide-react';
 import type { ChatMessage, Subject } from '@/types';
 import { Whiteboard } from '@/components/whiteboard/Whiteboard';
@@ -46,6 +49,36 @@ interface SubjectDisplayName {
   label: string;
   labelAr: string;
 }
+
+// Browser speech-recognition types are declared locally because they are not
+// included in every TypeScript DOM library version.
+interface TutorSpeechRecognitionResult {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+
+interface TutorSpeechRecognitionEvent {
+  results: { length: number; [index: number]: TutorSpeechRecognitionResult };
+}
+
+interface TutorSpeechRecognition {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: TutorSpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type TutorSpeechRecognitionConstructor = new () => TutorSpeechRecognition;
+
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: TutorSpeechRecognitionConstructor;
+  webkitSpeechRecognition?: TutorSpeechRecognitionConstructor;
+};
 
 const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
   Record<Subject, { title: string; steps: string[] }>
@@ -140,6 +173,9 @@ export function TeacherChat({
   );
 
   const [input, setInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [speechDraft, setSpeechDraft] = useState('');
+  const [isTutorSpeaking, setIsTutorSpeaking] = useState(false);
   const [voiceOn] = useState(true);
   const [muted] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -173,6 +209,9 @@ export function TeacherChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
   const autoStartedConversationsRef = useRef<Set<string>>(new Set());
+  const speechRecognitionRef = useRef<TutorSpeechRecognition | null>(null);
+  const voiceFinalTranscriptRef = useRef('');
+  const submitVoiceOnEndRef = useRef(true);
 
   // Scroll to the latest message.
   useEffect(() => {
@@ -441,6 +480,9 @@ export function TeacherChat({
   useEffect(() => {
     return () => {
       requestIdRef.current++;
+      submitVoiceOnEndRef.current = false;
+      speechRecognitionRef.current?.abort();
+      speechRecognitionRef.current = null;
       stopTutorAudio();
     };
   }, []);
@@ -646,9 +688,12 @@ export function TeacherChat({
 
     if (useVoice && responseText.trim()) {
       try {
+        setIsTutorSpeaking(true);
         await playTutorAudio(responseText);
       } catch (error) {
         console.warn('Tutor audio playback failed:', error);
+      } finally {
+        setIsTutorSpeaking(false);
       }
     }
 
@@ -697,7 +742,14 @@ export function TeacherChat({
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
 
-    if (!content) return;
+    if (!content || typing) return;
+
+    if (speechRecognitionRef.current) {
+      submitVoiceOnEndRef.current = false;
+      speechRecognitionRef.current.abort();
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+    }
 
     if (!activeStudentId) {
       setStudentLoadError(
@@ -731,6 +783,8 @@ export function TeacherChat({
 
     setMessages((currentMessages) => [...currentMessages, studentMsg]);
     setInput('');
+    setSpeechDraft('');
+    voiceFinalTranscriptRef.current = '';
     setTyping(true);
     setDrawing(false);
     setStudentLoadError('');
@@ -786,6 +840,118 @@ export function TeacherChat({
     }
   };
 
+  const cancelVoiceInput = () => {
+    submitVoiceOnEndRef.current = false;
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.abort();
+      speechRecognitionRef.current = null;
+    }
+    voiceFinalTranscriptRef.current = '';
+    setSpeechDraft('');
+    setIsListening(false);
+  };
+
+  const startVoiceInput = () => {
+    if (typing || conversationLoading || !conversation) return;
+
+    const speechWindow = window as WindowWithSpeechRecognition;
+    const SpeechRecognitionApi =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionApi) {
+      setStudentLoadError(
+        'المتصفح الحالي لا يدعم الإدخال الصوتي المباشر. افتح The Primer باستخدام Google Chrome أو استخدم الكتابة.'
+      );
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setStudentLoadError(
+        'الميكروفون يحتاج إلى اتصال آمن HTTPS. افتح الموقع من رابطه الآمن ثم جرّب مرة أخرى.'
+      );
+      return;
+    }
+
+    stopTutorAudio();
+    setIsTutorSpeaking(false);
+    setStudentLoadError('');
+    setSpeechDraft('');
+    voiceFinalTranscriptRef.current = '';
+    submitVoiceOnEndRef.current = true;
+
+    const recognition = new SpeechRecognitionApi();
+    recognition.lang = activeSubject === 'english' ? 'en-US' : 'ar-EG';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      let finalText = '';
+      let interimText = '';
+
+      for (let index = 0; index < event.results.length; index++) {
+        const transcript = event.results[index][0]?.transcript || '';
+        if (event.results[index].isFinal) {
+          finalText += `${transcript} `;
+        } else {
+          interimText += `${transcript} `;
+        }
+      }
+
+      voiceFinalTranscriptRef.current = finalText.trim();
+      setSpeechDraft(`${finalText} ${interimText}`.trim());
+    };
+
+    recognition.onerror = (event) => {
+      const errorMessages: Record<string, string> = {
+        'not-allowed': 'لم تسمح باستخدام الميكروفون. فعّل إذن الميكروفون من إعدادات المتصفح.',
+        'service-not-allowed': 'خدمة التعرف على الصوت غير متاحة من المتصفح حاليًا.',
+        'audio-capture': 'لم يتم العثور على ميكروفون متصل بالجهاز.',
+        network: 'حدثت مشكلة في الاتصال أثناء تحويل صوتك إلى نص. حاول مرة أخرى.',
+        'no-speech': 'لم أسمع صوتًا واضحًا. اضغط على الميكروفون وحاول مرة أخرى.',
+      };
+
+      if (event.error !== 'aborted') {
+        setStudentLoadError(
+          errorMessages[event.error] || 'تعذّر استقبال الصوت. يمكنك المحاولة مرة أخرى أو الكتابة.'
+        );
+      }
+    };
+
+    recognition.onend = () => {
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+
+      const finalTranscript = voiceFinalTranscriptRef.current.trim();
+      if (submitVoiceOnEndRef.current && finalTranscript) {
+        void send(finalTranscript);
+      } else if (submitVoiceOnEndRef.current && !finalTranscript) {
+        setSpeechDraft('');
+      }
+    };
+
+    speechRecognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch (error) {
+      speechRecognitionRef.current = null;
+      setIsListening(false);
+      console.error('Could not start speech recognition:', error);
+      setStudentLoadError('تعذّر تشغيل الميكروفون. تأكد أنه غير مستخدم في تطبيق آخر ثم حاول مجددًا.');
+    }
+  };
+
+  const toggleVoiceInput = () => {
+    if (isListening && speechRecognitionRef.current) {
+      // Stopping the microphone submits the final recognized sentence.
+      speechRecognitionRef.current.stop();
+      return;
+    }
+
+    startVoiceInput();
+  };
+
   const voiceActive = voiceOn && !muted;
 
   return (
@@ -817,11 +983,15 @@ export function TeacherChat({
             <span className="mt-0.5 flex items-center gap-1 text-xs text-green-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
 
-              {typing
-                ? 'بجهز الإجابة...'
-                : voiceActive
-                  ? 'معاك دلوقتي'
-                  : 'جاهز أي وقت'}
+              {isListening
+                ? 'بسمعك دلوقتي...'
+                : typing
+                  ? 'بجهز الإجابة...'
+                  : isTutorSpeaking
+                    ? 'المدرس بيتكلم...'
+                    : voiceActive
+                      ? 'الصوت متاح — اتكلم معايا'
+                      : 'جاهز أي وقت'}
             </span>
           </div>
 
@@ -877,7 +1047,10 @@ export function TeacherChat({
                   return (
                     <button
                       key={subj}
-                      onClick={() => setActiveSubject(subj)}
+                      onClick={() => {
+                        cancelVoiceInput();
+                        setActiveSubject(subj);
+                      }}
                       className={cn(
                         'flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition',
                         isActive
@@ -992,7 +1165,54 @@ export function TeacherChat({
           )}
         </div>
 
-        <div className="border-t border-[#2a2a2a] p-3">
+        <div className="border-t border-[#2a2a2a] bg-[#111111] p-3">
+          <div className="mb-3 flex flex-col items-center gap-2 rounded-2xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.08] to-transparent px-4 py-4 text-center">
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={
+                availableSubjects.length === 0 ||
+                conversationLoading ||
+                typing ||
+                isTutorSpeaking
+              }
+              className={cn(
+                'flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
+                isListening
+                  ? 'animate-pulse border-red-400 bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.35)]'
+                  : 'border-emerald-400/40 bg-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.18)] hover:scale-105 hover:bg-emerald-400'
+              )}
+              aria-label={isListening ? 'إنهاء التسجيل وإرسال الكلام' : 'التحدث مع المدرس بالصوت'}
+              title={isListening ? 'اضغط لإنهاء كلامك وإرساله' : 'اضغط وتحدث مع المدرس'}
+            >
+              {isListening ? <MicOff size={24} /> : <Mic size={24} />}
+            </button>
+
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-white">
+                {isListening
+                  ? 'أنا بسمعك... اضغط الميكروفون لما تخلص'
+                  : isTutorSpeaking
+                    ? 'المدرس بيشرح لك بالصوت'
+                    : 'اتكلم مع مدرسك مباشرة'}
+              </p>
+              <p className="text-[11px] text-neutral-500">
+                {isListening
+                  ? 'كلامك هيتحوّل لنص ويتبعت تلقائيًا لما تخلص'
+                  : 'اضغط على الميكروفون وابدأ كلامك — والرد هيكون صوت وكتابة'}
+              </p>
+            </div>
+
+            {speechDraft && (
+              <div
+                dir="auto"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-right text-xs leading-6 text-neutral-300"
+              >
+                {speechDraft}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
             <input
               value={input}
@@ -1005,21 +1225,29 @@ export function TeacherChat({
               }}
               placeholder={
                 availableSubjects.length > 0
-                  ? 'اسأل مدرّسك...'
+                  ? 'أو اكتب رسالتك هنا...'
                   : 'لا توجد مواد متاحة حاليًا'
               }
-              disabled={availableSubjects.length === 0}
+              disabled={
+                availableSubjects.length === 0 ||
+                conversationLoading ||
+                typing
+              }
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
 
             <button
               onClick={() => void send()}
-              disabled={!input.trim() || availableSubjects.length === 0}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
-              aria-label="إرسال السؤال"
+              disabled={!input.trim() || availableSubjects.length === 0 || conversationLoading || typing}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
+              aria-label="إرسال الرسالة المكتوبة"
             >
               <Send size={18} />
             </button>
+          </div>
+          <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-neutral-600">
+            <Volume2 size={12} />
+            <span>المدرس يرد بالصوت والنص، وتقدر تستخدم الكتابة في أي وقت</span>
           </div>
         </div>
       </div>
