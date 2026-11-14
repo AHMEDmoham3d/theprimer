@@ -20,6 +20,12 @@ export interface StudentCurriculumData {
   subjects: CurriculumSubjectRow[];
 }
 
+export interface StudentSubjectLesson {
+  subject: CurriculumSubjectRow;
+  unit: CurriculumUnitRow;
+  lesson: CurriculumLessonRow;
+}
+
 export interface StudentExamData extends StudentCurriculumData {
   lessons: Array<{
     lesson: CurriculumLessonRow;
@@ -31,42 +37,18 @@ export interface StudentExamData extends StudentCurriculumData {
 }
 
 function isFullYearThirdSecondary(student: StudentRow): boolean {
-  const curriculumName = (student.curriculum_name || '').trim().toLowerCase();
-
-  const isThirdSecondary =
+  return (
     student.stage === 'secondary' &&
-    student.grade_code === 'secondary_3';
-
-  if (!isThirdSecondary) {
-    return false;
-  }
-
-  const supportedCurricula = [
-    'البكالوريا المصرية',
-    'التعليم الأزهري',
-    'المنهج المصري العام',
-    'شهادة مدارس النيل الدولية',
-    'egyptian baccalaureate',
-    'al-azhar education',
-    'egyptian national curriculum',
-    'nile international schools',
-  ];
-
-  return supportedCurricula.some((name) =>
-    curriculumName.includes(name.toLowerCase())
+    student.grade_code === 'secondary_3'
   );
 }
 
-/**
- * Loads the student's saved curriculum and its active subjects.
- */
 export async function fetchStudentCurriculum(
   studentId: string
 ): Promise<StudentCurriculumData | null> {
   const normalizedStudentId = studentId.trim();
 
   if (!normalizedStudentId) {
-    console.warn('fetchStudentCurriculum: Student ID is missing.');
     return null;
   }
 
@@ -74,13 +56,10 @@ export async function fetchStudentCurriculum(
     const student = await fetchStudentById(normalizedStudentId);
 
     if (!student) {
-      console.warn('fetchStudentCurriculum: Student was not found.');
       return null;
     }
 
     if (!student.curriculum_id) {
-      console.warn('fetchStudentCurriculum: No curriculum assigned.');
-
       return {
         student,
         subjects: [],
@@ -108,8 +87,93 @@ export async function fetchStudentCurriculum(
 }
 
 /**
- * Loads the student's published curriculum lessons and makes sure
- * every lesson has a progress record in lesson_mastery.
+ * Loads the actual curriculum lessons for one student and subject.
+ */
+export async function fetchStudentSubjectLessons(
+  studentId: string,
+  subjectKey: string
+): Promise<StudentSubjectLesson[]> {
+  const normalizedStudentId = studentId.trim();
+  const normalizedSubjectKey = subjectKey.trim();
+
+  if (!normalizedStudentId || !normalizedSubjectKey) {
+    return [];
+  }
+
+  const curriculumData = await fetchStudentCurriculum(
+    normalizedStudentId
+  );
+
+  if (!curriculumData) {
+    return [];
+  }
+
+  const { student, subjects } = curriculumData;
+
+  if (!student.curriculum_id) {
+    return [];
+  }
+
+  const selectedSubject = subjects.find(
+    (subject) =>
+      subject.subject_key.toLowerCase() ===
+      normalizedSubjectKey.toLowerCase()
+  );
+
+  if (!selectedSubject) {
+    return [];
+  }
+
+  try {
+    const publicationSettings =
+      await fetchCurriculumPublicationSettings();
+
+    const currentTerm = publicationSettings.current_term;
+    const fullYear = isFullYearThirdSecondary(student);
+
+    const units = await fetchUnits(selectedSubject.id);
+
+    const publishedUnits = units.filter((unit) => {
+      if (fullYear) {
+        return unit.term === 'full_year';
+      }
+
+      return (
+        unit.term === currentTerm ||
+        unit.term === 'full_year'
+      );
+    });
+
+    const results = await Promise.all(
+      publishedUnits.map(async (unit) => {
+        const lessons = await fetchLessons(unit.id);
+
+        return lessons.map((lesson) => ({
+          subject: selectedSubject,
+          unit,
+          lesson,
+        }));
+      })
+    );
+
+    return results.flat().sort((a, b) => {
+      const unitOrder =
+        a.unit.sort_order - b.unit.sort_order;
+
+      if (unitOrder !== 0) {
+        return unitOrder;
+      }
+
+      return a.lesson.sort_order - b.lesson.sort_order;
+    });
+  } catch (error) {
+    console.error('fetchStudentSubjectLessons failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Loads the student's curriculum lessons and their mastery records.
  */
 export async function fetchStudentExamData(
   studentId: string
@@ -216,7 +280,9 @@ export async function fetchStudentExamData(
           unlocked: lessonOrderBySubject[subjectKey] === 1,
         };
       })
-      .filter((record) => !existingLessonIds.has(record.lesson_id));
+      .filter(
+        (record) => !existingLessonIds.has(record.lesson_id)
+      );
 
     if (masteryRecords.length > 0) {
       const { error } = await supabase
@@ -234,12 +300,16 @@ export async function fetchStudentExamData(
     const updatedMasteryRows = await fetchLessonMastery(studentId);
 
     const masteryByLessonId = new Map(
-      updatedMasteryRows.map((row) => [row.lesson_id, row])
+      updatedMasteryRows.map((row) => [
+        row.lesson_id,
+        row,
+      ])
     );
 
     const lessons = curriculumLessons.map((item) => ({
       ...item,
-      mastery: masteryByLessonId.get(item.lesson.id) || null,
+      mastery:
+        masteryByLessonId.get(item.lesson.id) || null,
     }));
 
     return {
