@@ -30,7 +30,8 @@ import {
   type ScheduleSlotRow,
   type LessonMasteryRow,
 } from '@/lib/db';
-import { askAITutor } from '@/lib/ai';
+import { askAITutor, type TutorLessonContext } from '@/lib/ai';
+import { fetchStudentSubjectLessons } from '@/lib/studentCurriculum';
 import { playTutorAudio, stopTutorAudio } from '@/lib/tts';
 import {
   getOrCreateTutorConversation,
@@ -78,67 +79,6 @@ type TutorSpeechRecognitionConstructor = new () => TutorSpeechRecognition;
 type WindowWithSpeechRecognition = Window & {
   SpeechRecognition?: TutorSpeechRecognitionConstructor;
   webkitSpeechRecognition?: TutorSpeechRecognitionConstructor;
-};
-
-const DYNAMIC_SUBJECT_WHITEBOARDS: Partial<
-  Record<Subject, { title: string; steps: string[] }>
-> = {
-  math: {
-    title: 'توضيح القاعدة الرياضية والخطوات',
-    steps: [
-      '1. كتابة المعطيات وتحديد المطلوب في المعادلة',
-      '2. تطبيق القانون أو التفاضل المناسب خطوة بخطوة',
-      '3. الوصول للحل النهائي والتحقق من صحته',
-    ],
-  },
-  physics: {
-    title: 'تحليل القوانين والقوى الفيزيائية',
-    steps: [
-      '1. تحديد القانون الأساسي (مثل قانون نيوتن أو الشغل)',
-      '2. تعويض الأرقام والوحدات القياسية',
-      '3. استنتاج النتيجة الفيزيائية',
-    ],
-  },
-  chemistry: {
-    title: 'توضيح التفاعل والروابط الكيميائية',
-    steps: [
-      '1. كتابة رموز العناصر المشاركة في التفاعل',
-      '2. توزيع الإلكترونات وتحديد نوع الرابطة',
-      '3. وزن المعادلة الكيميائية النهائية',
-    ],
-  },
-  biology: {
-    title: 'مخطط العمليات الحيوية في الخلية',
-    steps: [
-      '1. تحديد العضو أو الخلية المستهدفة',
-      '2. توضيح مراحل الانقسام أو التفاعل الحيوي',
-      '3. تلخيص الوظيفة النهائية',
-    ],
-  },
-  history: {
-    title: 'تسلسل الأحداث والتواريخ المهمة',
-    steps: [
-      '1. تحديد الحدث الرئيسي والأطراف المشاركة',
-      '2. توضيح الأسباب والنتائج المترتبة عليه',
-      '3. ربط الحدث بالسياق التاريخي العام',
-    ],
-  },
-  english: {
-    title: 'قاعدة الجرامر وبناء الجملة',
-    steps: [
-      '1. كتابة التكوين الأساسي للقاعدة (Structure)',
-      '2. إعطاء أمثلة توضيحية للإثبات والنفي',
-      '3. تطبيق تدريب سريع للتأكيد',
-    ],
-  },
-  geography: {
-    title: 'تحليل الظواهر الجغرافية والموارد',
-    steps: [
-      '1. تحديد الموقع أو الظاهرة على الخريطة',
-      '2. دراسة العوامل المؤثرة (المناخ، التضاريس)',
-      '3. استنتاج التوزيع الاقتصادي أو السكاني',
-    ],
-  },
 };
 
 // Supports both predefined and custom subjects added by the admin.
@@ -195,6 +135,8 @@ export function TeacherChat({
   const [studentStage, setStudentStage] = useState('');
   const [studentGrade, setStudentGrade] = useState('');
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+  const [curriculumLessons, setCurriculumLessons] = useState<TutorLessonContext[]>([]);
+  const [curriculumLessonsLoading, setCurriculumLessonsLoading] = useState(false);
 
   // Dynamic names returned from curriculum_grade_subjects.
   const [subjectDisplayNames, setSubjectDisplayNames] = useState<
@@ -230,6 +172,8 @@ export function TeacherChat({
       setDbSchedule([]);
       setDbLessons([]);
       setAvailableSubjects([]);
+      setCurriculumLessons([]);
+      setCurriculumLessonsLoading(false);
       setSubjectDisplayNames({});
       setStudentStage('');
       setStudentGrade('');
@@ -476,6 +420,79 @@ export function TeacherChat({
     };
   }, [activeStudentId, activeSubject, availableSubjects]);
 
+  // Load only the lessons actually published for the selected subject.
+  useEffect(() => {
+    let cancelled = false;
+
+    setCurriculumLessons([]);
+
+    if (
+      !activeStudentId ||
+      !activeSubject ||
+      !availableSubjects.includes(activeSubject)
+    ) {
+      setCurriculumLessonsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function loadPublishedLessons() {
+      setCurriculumLessonsLoading(true);
+
+      try {
+        const result = await fetchStudentSubjectLessons(
+          activeStudentId,
+          activeSubject
+        );
+
+        if (cancelled) return;
+
+        // The loader returns lesson records containing their parent unit.
+        // Accept a single record or an array to keep this integration tolerant
+        // of the helper's return shape without inventing lesson data.
+        const rows = Array.isArray(result)
+          ? result
+          : result
+            ? [result]
+            : [];
+
+        const mappedLessons: TutorLessonContext[] = rows
+          .filter((item) => item?.lesson && item?.unit)
+          .map((item) => ({
+            lessonId: item.lesson.id,
+            lessonTitle:
+              item.lesson.name_ar || item.lesson.name || 'درس بدون اسم',
+            unitTitle:
+              item.unit.name_ar || item.unit.name || 'وحدة بدون اسم',
+            content: item.lesson.content || '',
+            order: item.lesson.sort_order || 0,
+          }));
+
+        setCurriculumLessons(mappedLessons);
+      } catch (error) {
+        console.error('Failed to load published curriculum lessons:', error);
+
+        if (!cancelled) {
+          setCurriculumLessons([]);
+          setStudentLoadError(
+            'تعذّر تحميل دروس المادة المنشورة. لن يبدأ المدرس شرح درس غير متاح من المنهج.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setCurriculumLessonsLoading(false);
+        }
+      }
+    }
+
+    void loadPublishedLessons();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStudentId, activeSubject, availableSubjects]);
+
   // Stop audio and invalidate pending requests when the component unmounts.
   useEffect(() => {
     return () => {
@@ -549,33 +566,18 @@ export function TeacherChat({
       }))
       .slice(-30);
 
-  const createAssistantMessage = (id: string): ChatMessage => {
-    const currentWb =
-      (activeSubject && DYNAMIC_SUBJECT_WHITEBOARDS[activeSubject]) || {
-        title: `شرح مادة ${activeMeta.labelAr}`,
-        steps: [
-          '1. تحديد الفكرة أو السؤال المطلوب فهمه',
-          '2. شرح المفهوم خطوة بخطوة مع أمثلة مناسبة',
-          '3. مراجعة الفهم والتأكد من استيعاب النقاط الأساسية',
-        ],
-      };
-
-    return {
-      id,
-      role: 'ai',
-      text: '',
-      timestamp: new Date().toLocaleTimeString('ar-EG', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      reaction: 'encourage',
-      hasWhiteboard: true,
-      whiteboardSteps:
-        currentWb.steps as unknown as NonNullable<
-          ChatMessage['whiteboardSteps']
-        >,
-    };
-  };
+  const createAssistantMessage = (id: string): ChatMessage => ({
+    id,
+    role: 'ai',
+    text: '',
+    timestamp: new Date().toLocaleTimeString('ar-EG', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    reaction: 'encourage',
+    hasWhiteboard: false,
+    whiteboardSteps: [],
+  });
 
   const runTutorResponse = async (
     prompt: string,
@@ -626,6 +628,22 @@ export function TeacherChat({
             currentActiveLesson?.lesson_title ||
             null,
           lastTopic: options.conversationRow.last_topic || null,
+          curriculumLessons,
+          onBoardSteps: (steps) => {
+            if (currentRequestId !== requestIdRef.current) return;
+
+            setMessages((currentMessages) =>
+              currentMessages.map((message) =>
+                message.id === options.messageId
+                  ? {
+                      ...message,
+                      hasWhiteboard: steps.length > 0,
+                      whiteboardSteps: steps,
+                    }
+                  : message
+              )
+            );
+          },
         }
       );
 
@@ -706,6 +724,7 @@ export function TeacherChat({
   useEffect(() => {
     if (
       conversationLoading ||
+      curriculumLessonsLoading ||
       !conversation ||
       !activeSubject ||
       !availableSubjects.includes(activeSubject) ||
@@ -733,6 +752,7 @@ export function TeacherChat({
   }, [
     conversation,
     conversationLoading,
+    curriculumLessonsLoading,
     activeSubject,
     availableSubjects,
     messages.length,
@@ -763,7 +783,7 @@ export function TeacherChat({
       return;
     }
 
-    if (conversationLoading || !conversation) {
+    if (conversationLoading || curriculumLessonsLoading || !conversation) {
       setStudentLoadError('محادثة المادة لسه بتتحمّل. استنى لحظة وجرب تاني.');
       return;
     }
@@ -1173,6 +1193,7 @@ export function TeacherChat({
               disabled={
                 availableSubjects.length === 0 ||
                 conversationLoading ||
+                curriculumLessonsLoading ||
                 typing ||
                 isTutorSpeaking
               }
@@ -1231,6 +1252,7 @@ export function TeacherChat({
               disabled={
                 availableSubjects.length === 0 ||
                 conversationLoading ||
+                curriculumLessonsLoading ||
                 typing
               }
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
@@ -1238,7 +1260,7 @@ export function TeacherChat({
 
             <button
               onClick={() => void send()}
-              disabled={!input.trim() || availableSubjects.length === 0 || conversationLoading || typing}
+              disabled={!input.trim() || availableSubjects.length === 0 || conversationLoading || curriculumLessonsLoading || typing}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition hover:bg-neutral-700 disabled:opacity-30"
               aria-label="إرسال الرسالة المكتوبة"
             >
@@ -1293,6 +1315,14 @@ export function TeacherChat({
               <p className="text-xs text-neutral-400">
                 الدرس الحالي: {currentActiveLesson.lesson_title}
               </p>
+            )}
+
+            <p className="text-xs text-neutral-500">
+              عدد الدروس المنشورة للمادة: {curriculumLessons.length}
+            </p>
+
+            {curriculumLessonsLoading && (
+              <p className="text-xs text-emerald-400">جاري تحميل دروس المنهج...</p>
             )}
 
             <p className="text-xs text-neutral-500">
@@ -1448,6 +1478,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {message?.hasWhiteboard && message?.whiteboardSteps && (
           <Whiteboard
             steps={message.whiteboardSteps}
+            autoPlay
             className="max-w-md"
           />
         )}

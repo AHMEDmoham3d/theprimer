@@ -37,34 +37,198 @@ export interface TutorAIOptions {
   onBoardSteps?: (steps: StepAnimation[]) => void;
 }
 
-function isValidShape(value: unknown): value is ShapeInstruction {
+const SUPPORTED_SHAPES = [
+  'line',
+  'rect',
+  'circle',
+  'arc',
+  'text',
+  'triangle',
+  'arrow',
+  'highlight',
+  'timeline-marker',
+  'path',
+  'polyline',
+  'polygon',
+  'group',
+  'molecule',
+  'wave',
+  'cell',
+  'map-pin',
+] as const;
+
+const MAX_SHAPE_DEPTH = 3;
+const MAX_SHAPES_PER_GROUP = 12;
+
+function isValidPoint(value: unknown): boolean {
   if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const point = value as Record<string, unknown>;
+
+  return (
+    typeof point.x === 'number' &&
+    Number.isFinite(point.x) &&
+    point.x >= 0 &&
+    point.x <= 500 &&
+    typeof point.y === 'number' &&
+    Number.isFinite(point.y) &&
+    point.y >= 0 &&
+    point.y <= 320
+  );
+}
+
+function isValidShape(
+  value: unknown,
+  depth = 0
+): value is ShapeInstruction {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  if (depth > MAX_SHAPE_DEPTH) {
     return false;
   }
 
   const shape = value as Record<string, unknown>;
 
-  const supportedKinds = [
-    'line',
-    'rect',
-    'circle',
-    'arc',
-    'text',
-    'triangle',
-    'arrow',
-    'highlight',
-    'molecule',
-    'wave',
-    'cell',
-    'map-pin',
-    'timeline-marker',
+  if (
+    typeof shape.kind !== 'string' ||
+    !SUPPORTED_SHAPES.includes(
+      shape.kind as (typeof SUPPORTED_SHAPES)[number]
+    ) ||
+    typeof shape.color !== 'string'
+  ) {
+    return false;
+  }
+
+  // Validate coordinates when supplied.
+  const coordinateFields = [
+    'x1',
+    'x2',
   ];
 
-  return (
-    typeof shape.kind === 'string' &&
-    supportedKinds.includes(shape.kind) &&
-    typeof shape.color === 'string'
-  );
+  for (const field of coordinateFields) {
+    const coordinate = shape[field];
+
+    if (
+      coordinate !== undefined &&
+      (typeof coordinate !== 'number' ||
+        !Number.isFinite(coordinate) ||
+        coordinate < 0 ||
+        coordinate > 500)
+    ) {
+      return false;
+    }
+  }
+
+  const verticalFields = ['y1', 'y2'];
+
+  for (const field of verticalFields) {
+    const coordinate = shape[field];
+
+    if (
+      coordinate !== undefined &&
+      (typeof coordinate !== 'number' ||
+        !Number.isFinite(coordinate) ||
+        coordinate < 0 ||
+        coordinate > 320)
+    ) {
+      return false;
+    }
+  }
+
+  // Validate points used by polygons, waves and paths.
+  if (shape.points !== undefined) {
+    if (
+      !Array.isArray(shape.points) ||
+      !shape.points.every(isValidPoint)
+    ) {
+      return false;
+    }
+  }
+
+  // Validate nested shapes used by groups and molecules.
+  if (shape.children !== undefined) {
+    if (
+      !Array.isArray(shape.children) ||
+      shape.children.length > MAX_SHAPES_PER_GROUP
+    ) {
+      return false;
+    }
+
+    if (
+      !shape.children.every((child) =>
+        isValidShape(child, depth + 1)
+      )
+    ) {
+      return false;
+    }
+  }
+
+  // Validate SVG path data.
+  if (
+    shape.pathData !== undefined &&
+    (typeof shape.pathData !== 'string' ||
+      shape.pathData.length > 4000)
+  ) {
+    return false;
+  }
+
+  // Validate text fields.
+  const stringFields = [
+    'text',
+    'fontFamily',
+    'fontWeight',
+    'textAnchor',
+    'fill',
+    'lineCap',
+    'lineJoin',
+    'dashArray',
+    'id',
+  ];
+
+  for (const field of stringFields) {
+    if (
+      shape[field] !== undefined &&
+      typeof shape[field] !== 'string'
+    ) {
+      return false;
+    }
+  }
+
+  // Validate numeric properties.
+  const numericFields = [
+    'radius',
+    'fontSize',
+    'delayMs',
+    'rotation',
+    'strokeWidth',
+    'fillOpacity',
+    'opacity',
+    'durationMs',
+  ];
+
+  for (const field of numericFields) {
+    if (
+      shape[field] !== undefined &&
+      (typeof shape[field] !== 'number' ||
+        !Number.isFinite(shape[field]))
+    ) {
+      return false;
+    }
+  }
+
+  // Validate boolean properties.
+  if (
+    shape.closed !== undefined &&
+    typeof shape.closed !== 'boolean'
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function isValidBoardSteps(value: unknown): value is StepAnimation[] {
@@ -84,8 +248,10 @@ function isValidBoardSteps(value: unknown): value is StepAnimation[] {
       typeof item.label === 'string' &&
       typeof item.narration === 'string' &&
       typeof item.durationMs === 'number' &&
+      Number.isFinite(item.durationMs) &&
       Array.isArray(item.shapes) &&
-      item.shapes.every(isValidShape)
+      item.shapes.length <= 12 &&
+      item.shapes.every((shape) => isValidShape(shape))
     );
   });
 }
@@ -175,7 +341,22 @@ export async function askAITutor(
           // Structured whiteboard event from the backend.
           if (event?.type === 'board') {
             if (isValidBoardSteps(event.steps)) {
+              console.log(
+                'Whiteboard steps received:',
+                event.steps.length,
+                event.steps.map((step: StepAnimation) => ({
+                  label: step.label,
+                  shapes: step.shapes.length,
+                  kinds: step.shapes.map((shape) => shape.kind),
+                }))
+              );
+
               onBoardSteps?.(event.steps);
+            } else {
+              console.warn(
+                'Whiteboard event received but its steps are invalid:',
+                event.steps
+              );
             }
 
             continue;
