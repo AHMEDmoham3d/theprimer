@@ -30,6 +30,86 @@ export type WhatsAppTrigger =
 
 export type BlockStatus = 'active' | 'blocked';
 
+/* =========================================
+   Whiteboard Drawing Types
+========================================= */
+
+export type DrawingPoint = {
+  x: number;
+  y: number;
+};
+
+export type ShapeKind =
+  | 'line'
+  | 'rect'
+  | 'circle'
+  | 'arc'
+  | 'text'
+  | 'triangle'
+  | 'arrow'
+  | 'highlight'
+  | 'molecule'
+  | 'wave'
+  | 'cell'
+  | 'map-pin'
+  | 'timeline-marker'
+  | 'path'
+  | 'polyline'
+  | 'polygon'
+  | 'group';
+
+export type ShapeInstruction = {
+  id?: string;
+
+  kind: ShapeKind;
+
+  color: string;
+
+  // Basic coordinates
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+
+  // Shape dimensions
+  radius?: number;
+  rotation?: number;
+
+  // Text properties
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: string | number;
+  textAnchor?: 'start' | 'middle' | 'end';
+
+  // Drawing points
+  points?: DrawingPoint[];
+
+  // SVG path data, used for handwriting and custom drawings
+  pathData?: string;
+
+  // Group support
+  children?: ShapeInstruction[];
+
+  // Stroke and fill
+  strokeWidth?: number;
+  fill?: string;
+  fillOpacity?: number;
+  opacity?: number;
+
+  // Line appearance
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'arcs' | 'bevel' | 'miter' | 'miter-clip' | 'round';
+
+  // Shape behavior
+  closed?: boolean;
+  dashArray?: string;
+
+  // Animation
+  delayMs?: number;
+  durationMs?: number;
+};
+
 export type StepAnimation = {
   id: string;
   label: string;
@@ -38,19 +118,9 @@ export type StepAnimation = {
   durationMs: number;
 };
 
-export type ShapeInstruction = {
-  kind: 'line' | 'rect' | 'circle' | 'arc' | 'text' | 'triangle' | 'arrow' | 'highlight' | 'molecule' | 'wave' | 'cell' | 'map-pin' | 'timeline-marker';
-  color: string;
-  x1?: number;
-  y1?: number;
-  x2?: number;
-  y2?: number;
-  radius?: number;
-  text?: string;
-  fontSize?: number;
-  points?: { x: number; y: number }[];
-  delayMs?: number;
-};
+/* =========================================
+   Student and Platform Types
+========================================= */
 
 export interface Student {
   id: string;

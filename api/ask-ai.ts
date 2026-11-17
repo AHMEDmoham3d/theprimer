@@ -14,6 +14,36 @@ type CurriculumLesson = {
   order: number;
 };
 
+type CleanShape = {
+  id?: string;
+  kind: string;
+  color: string;
+  x1?: number;
+  y1?: number;
+  x2?: number;
+  y2?: number;
+  radius?: number;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: number | string;
+  textAnchor?: 'start' | 'middle' | 'end';
+  points?: Array<{ x: number; y: number }>;
+  pathData?: string;
+  children?: CleanShape[];
+  rotation?: number;
+  strokeWidth?: number;
+  fill?: string;
+  fillOpacity?: number;
+  opacity?: number;
+  lineCap?: 'butt' | 'round' | 'square';
+  lineJoin?: 'round' | 'bevel' | 'miter';
+  closed?: boolean;
+  dashArray?: string;
+  delayMs?: number;
+  durationMs?: number;
+};
+
 const MAX_LESSONS = 5;
 const MAX_LESSON_CONTENT = 2400;
 const MAX_TOTAL_CURRICULUM_CONTENT = 7000;
@@ -26,6 +56,10 @@ const MAX_BOARD_STEPS = 8;
 const MAX_SHAPES_PER_STEP = 12;
 const MAX_COMPLETION_TOKENS = 3500;
 
+const MAX_SHAPE_DEPTH = 3;
+const MAX_CHILDREN_PER_GROUP = 12;
+const MAX_PATH_LENGTH = 1500;
+
 const SUPPORTED_SHAPES = [
   'line',
   'rect',
@@ -36,6 +70,14 @@ const SUPPORTED_SHAPES = [
   'arrow',
   'highlight',
   'timeline-marker',
+  'path',
+  'polyline',
+  'polygon',
+  'group',
+  'molecule',
+  'wave',
+  'cell',
+  'map-pin',
 ];
 
 function getSafeText(
@@ -234,6 +276,298 @@ function getCurriculumLessons(value: unknown): CurriculumLesson[] {
   return lessons;
 }
 
+function clampNumber(
+  value: unknown,
+  min: number,
+  max: number
+): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.max(min, Math.min(value, max));
+}
+
+function getSafeColor(
+  value: unknown,
+  fallback = '#10b981'
+): string {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const color = value.trim();
+
+  const isHex = /^#[0-9a-fA-F]{3,8}$/.test(color);
+
+  const isNamedColor =
+    /^[a-zA-Z]{1,20}$/.test(color) &&
+    !['url', 'currentColor', 'inherit'].includes(color);
+
+  return isHex || isNamedColor ? color : fallback;
+}
+
+function getSafePathData(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const path = value.trim();
+
+  if (!path || path.length > MAX_PATH_LENGTH) {
+    return undefined;
+  }
+
+  // Allow only SVG path commands, numbers, signs, decimals and separators.
+  // This prevents URL references, markup and other injected SVG content.
+  const validPathCharacters =
+    /^[MmLlHhVvCcSsQqTtAaZz0-9eE+.,\-\s]+$/;
+
+  if (!validPathCharacters.test(path)) {
+    return undefined;
+  }
+
+  return path;
+}
+
+function sanitizeShape(
+  value: unknown,
+  depth = 0
+): CleanShape | null {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    depth > MAX_SHAPE_DEPTH
+  ) {
+    return null;
+  }
+
+  const current = value as Record<string, unknown>;
+
+  if (
+    typeof current.kind !== 'string' ||
+    !SUPPORTED_SHAPES.includes(current.kind)
+  ) {
+    return null;
+  }
+
+  const kind = current.kind;
+
+  const clean: CleanShape = {
+    kind,
+    color: getSafeColor(current.color),
+  };
+
+  const id = getSafeText(current.id, '', 100);
+
+  if (id) {
+    clean.id = id;
+  }
+
+  const coordinateFields = [
+    'x1',
+    'x2',
+  ] as const;
+
+  coordinateFields.forEach((field) => {
+    const number = clampNumber(current[field], 0, 500);
+
+    if (number !== undefined) {
+      clean[field] = number;
+    }
+  });
+
+  const verticalFields = [
+    'y1',
+    'y2',
+  ] as const;
+
+  verticalFields.forEach((field) => {
+    const number = clampNumber(current[field], 0, 320);
+
+    if (number !== undefined) {
+      clean[field] = number;
+    }
+  });
+
+  const numericFields = [
+    'radius',
+    'fontSize',
+    'rotation',
+    'strokeWidth',
+    'fillOpacity',
+    'opacity',
+    'delayMs',
+    'durationMs',
+  ] as const;
+
+  numericFields.forEach((field) => {
+    const number = clampNumber(
+      current[field],
+      0,
+      field === 'durationMs' ? 30000 : 1000
+    );
+
+    if (number !== undefined) {
+      clean[field] = number;
+    }
+  });
+
+  if (typeof current.text === 'string') {
+    clean.text = current.text.slice(0, 300);
+  }
+
+  if (typeof current.fontFamily === 'string') {
+    clean.fontFamily = getSafeText(
+      current.fontFamily,
+      'Cairo, sans-serif',
+      80
+    );
+  }
+
+  if (
+    typeof current.fontWeight === 'number' &&
+    Number.isFinite(current.fontWeight)
+  ) {
+    clean.fontWeight = Math.max(
+      100,
+      Math.min(current.fontWeight, 900)
+    );
+  } else if (typeof current.fontWeight === 'string') {
+    const allowedWeights = [
+      'normal',
+      'bold',
+      'lighter',
+      'bolder',
+    ];
+
+    if (allowedWeights.includes(current.fontWeight)) {
+      clean.fontWeight = current.fontWeight;
+    }
+  }
+
+  if (
+    current.textAnchor === 'start' ||
+    current.textAnchor === 'middle' ||
+    current.textAnchor === 'end'
+  ) {
+    clean.textAnchor = current.textAnchor;
+  }
+
+  if (typeof current.fill === 'string') {
+    clean.fill =
+      current.fill === 'none'
+        ? 'none'
+        : getSafeColor(current.fill, clean.color);
+  }
+
+  if (
+    current.lineCap === 'butt' ||
+    current.lineCap === 'round' ||
+    current.lineCap === 'square'
+  ) {
+    clean.lineCap = current.lineCap;
+  }
+
+  if (
+    current.lineJoin === 'round' ||
+    current.lineJoin === 'bevel' ||
+    current.lineJoin === 'miter'
+  ) {
+    clean.lineJoin = current.lineJoin;
+  }
+
+  if (typeof current.closed === 'boolean') {
+    clean.closed = current.closed;
+  }
+
+  if (typeof current.dashArray === 'string') {
+    const dashArray = current.dashArray.trim();
+
+    if (
+      dashArray.length <= 60 &&
+      /^[0-9.,\s-]+$/.test(dashArray)
+    ) {
+      clean.dashArray = dashArray;
+    }
+  }
+
+  if (typeof current.pathData === 'string') {
+    const pathData = getSafePathData(current.pathData);
+
+    if (pathData) {
+      clean.pathData = pathData;
+    }
+  }
+
+  if (Array.isArray(current.points)) {
+    clean.points = current.points
+      .slice(0, 20)
+      .filter((point) => {
+        return (
+          point !== null &&
+          typeof point === 'object' &&
+          typeof (point as Record<string, unknown>).x === 'number' &&
+          Number.isFinite((point as Record<string, unknown>).x) &&
+          typeof (point as Record<string, unknown>).y === 'number' &&
+          Number.isFinite((point as Record<string, unknown>).y)
+        );
+      })
+      .map((point) => {
+        const item = point as Record<string, unknown>;
+
+        return {
+          x: clampNumber(item.x, 0, 500) ?? 0,
+          y: clampNumber(item.y, 0, 320) ?? 0,
+        };
+      });
+  }
+
+  if (
+    (kind === 'group' || kind === 'molecule') &&
+    Array.isArray(current.children)
+  ) {
+    clean.children = current.children
+      .slice(0, MAX_CHILDREN_PER_GROUP)
+      .map((child) => sanitizeShape(child, depth + 1))
+      .filter(
+        (child): child is CleanShape => child !== null
+      );
+  }
+
+  // Reject shapes that do not have the minimum data needed to render.
+  if (
+    (kind === 'path' || kind === 'wave') &&
+    !clean.pathData &&
+    (!clean.points || clean.points.length < 2)
+  ) {
+    return null;
+  }
+
+  if (
+    kind === 'polyline' &&
+    (!clean.points || clean.points.length < 2)
+  ) {
+    return null;
+  }
+
+  if (
+    (kind === 'polygon' || kind === 'triangle') &&
+    (!clean.points || clean.points.length < 3)
+  ) {
+    return null;
+  }
+
+  if (
+    (kind === 'group' || kind === 'molecule') &&
+    (!clean.children || clean.children.length === 0)
+  ) {
+    return null;
+  }
+
+  return clean;
+}
+
 function sanitizeBoardSteps(value: unknown) {
   if (!Array.isArray(value)) {
     return [];
@@ -248,84 +582,14 @@ function sanitizeBoardSteps(value: unknown) {
       const shapes = Array.isArray(item.shapes)
         ? item.shapes
             .slice(0, MAX_SHAPES_PER_STEP)
-            .filter((shape) => {
-              if (!shape || typeof shape !== 'object') {
-                return false;
-              }
-
-              const current = shape as Record<string, unknown>;
-
-              return (
-                typeof current.kind === 'string' &&
-                SUPPORTED_SHAPES.includes(current.kind)
-              );
-            })
-            .map((shape) => {
-              const current = shape as Record<string, unknown>;
-
-              const clean: Record<string, unknown> = {
-                kind: current.kind,
-                color: getSafeText(
-                  current.color,
-                  '#10b981',
-                  30
-                ),
-              };
-
-              const numericFields = [
-                'x1',
-                'y1',
-                'x2',
-                'y2',
-                'radius',
-                'fontSize',
-                'delayMs',
-              ];
-
-              numericFields.forEach((field) => {
-                const number = current[field];
-
-                if (
-                  typeof number === 'number' &&
-                  Number.isFinite(number)
-                ) {
-                  clean[field] = Math.max(
-                    0,
-                    Math.min(number, 1000)
-                  );
-                }
-              });
-
-              if (typeof current.text === 'string') {
-                clean.text = current.text.slice(0, 300);
-              }
-
-              if (Array.isArray(current.points)) {
-                clean.points = current.points
-                  .slice(0, 20)
-                  .filter(
-                    (point) =>
-                      point &&
-                      typeof point.x === 'number' &&
-                      Number.isFinite(point.x) &&
-                      typeof point.y === 'number' &&
-                      Number.isFinite(point.y)
-                  )
-                  .map((point) => ({
-                    x: Math.max(0, Math.min(point.x, 500)),
-                    y: Math.max(0, Math.min(point.y, 320)),
-                  }));
-              }
-
-              return clean;
-            })
+            .map((shape) => sanitizeShape(shape))
+            .filter(
+              (shape): shape is CleanShape => shape !== null
+            )
         : [];
 
       const duration =
-        typeof item.durationMs === 'number' &&
-        Number.isFinite(item.durationMs)
-          ? Math.max(500, Math.min(item.durationMs, 30000))
-          : 4000;
+        clampNumber(item.durationMs, 500, 30000) ?? 4000;
 
       return {
         id: getSafeText(item.id, `step-${index + 1}`, 100),
@@ -685,37 +949,165 @@ ${
       "durationMs": 4000,
       "shapes": [
         {
-          "kind": "text",
+          "kind": "path",
           "color": "#10b981",
-          "x1": 40,
-          "y1": 50,
-          "text": "مثال",
-          "fontSize": 22
+          "pathData": "M 40 50 L 100 50 L 100 100",
+          "strokeWidth": 3,
+          "fill": "none",
+          "lineCap": "round",
+          "lineJoin": "round",
+          "delayMs": 0,
+          "durationMs": 1200
         }
       ]
     }
   ]
 }
 
-قواعد السبورة:
+قواعد السبورة العامة:
 1. كل خطوة تمثل جزءًا حقيقيًا من الشرح.
 2. narration كلام طبيعي مناسب للصوت.
 3. اربط الرسم بالكلام الموجود في نفس الخطوة.
 4. لا تستخدم رسومات زخرفية.
 5. مساحة السبورة 500 × 320.
-6. استخدم ألوانًا واضحة.
+6. استخدم ألوانًا واضحة ومناسبة للموضوع.
 7. اجعل كل خطوة تحتوي على رسم أو كتابة مفيدة متى أمكن.
 8. لا تتجاوز 8 خطوات.
 9. لا تكرر نفس الرسم دون سبب.
 10. إذا لم يحتج السؤال إلى سبورة، أرجع steps كمصفوفة فارغة.
 11. النص الكامل في text يجب أن يعكس محتوى narration.
 12. لا تضع تعليمات تقنية داخل الشرح.
+13. لا تضع عناصر خارج حدود السبورة.
+14. اجعل الرسومات بسيطة وواضحة ومناسبة لعمر الطالب.
+15. لا تستخدم pathData إلا لمسارات SVG صحيحة.
+16. لا ترسم شيئًا غير متأكد من شكله العلمي أو التعليمي.
+17. استخدم أكثر من شكل عند الحاجة لبناء رسم واحد.
+18. اجعل ترتيب ظهور العناصر منطقيًا مع ترتيب الشرح.
 
 أنواع الأشكال المتاحة:
-line, rect, circle, arc, text, triangle, arrow, highlight, timeline-marker.
+
+1. line:
+خط مستقيم، ويستخدم x1 وy1 وx2 وy2.
+
+2. rect:
+مستطيل، ويستخدم x1 وy1 وx2 وy2.
+
+3. circle:
+دائرة، ويستخدم x1 وy1 وradius.
+
+4. arc:
+قوس، ويمكن استخدام pathData أو إحداثيات البداية.
+
+5. text:
+كتابة نص على السبورة، ويستخدم x1 وy1 وtext وfontSize.
+
+6. triangle:
+مثلث، ويستخدم points بثلاث نقاط على الأقل.
+
+7. arrow:
+سهم، ويستخدم x1 وy1 وx2 وy2.
+
+8. highlight:
+تحديد أو تظليل جزء مهم.
+
+9. timeline-marker:
+علامة على خط زمني، ويستخدم x1 وy1.
+
+10. path:
+مسار SVG مرسوم باستخدام pathData.
+
+11. polyline:
+خط مكسّر يمر بمجموعة نقاط points.
+
+12. polygon:
+شكل مغلق مكوّن من مجموعة نقاط points.
+
+13. group:
+مجموعة أشكال مترابطة داخل children.
+
+14. molecule:
+مجموعة عناصر كيميائية مترابطة داخل children، مثل الذرات والروابط.
+
+15. wave:
+موجة باستخدام pathData أو points.
+
+16. cell:
+رسم تخطيطي لخلية، ويستخدم x1 وy1 وradius.
+
+17. map-pin:
+علامة موقع، ويستخدم x1 وy1 وradius.
+
+خصائص الأشكال الاختيارية:
+- color: لون الحدود أو الشكل.
+- fill: لون التعبئة أو none.
+- fillOpacity: شفافية التعبئة من 0 إلى 1.
+- opacity: شفافية الشكل من 0 إلى 1.
+- strokeWidth: سمك الخط.
+- lineCap: butt أو round أو square.
+- lineJoin: round أو bevel أو miter.
+- dashArray: نمط الخط المتقطع.
+- fontFamily: نوع الخط.
+- fontWeight: سمك الخط.
+- textAnchor: start أو middle أو end.
+- rotation: زاوية دوران المجموعة.
+- delayMs: تأخير ظهور الشكل بالمللي ثانية.
+- durationMs: مدة رسم الشكل بالمللي ثانية.
+
+طريقة اختيار الرسومات حسب المادة:
+
+الرياضيات:
+- استخدم خطوات منفصلة لحل المعادلات.
+- اكتب كل خطوة حسابية في مكان واضح.
+- استخدم خطوطًا ودوائر ومضلعات للأشكال الهندسية.
+- وضح المحاور والإحداثيات عند الحاجة.
+- لا تقفز إلى الناتج النهائي دون إظهار خطوات الحل.
+
+الفيزياء:
+- ارسم اتجاهات القوى بأسهم واضحة.
+- استخدم الرسومات التوضيحية للحركة والسرعة والتسارع.
+- استخدم الموجات عند شرح الصوت أو الضوء أو الاهتزاز.
+- اكتب الرموز والوحدات بجانب الرسم.
+
+الكيمياء:
+- استخدم الدوائر لتمثيل الذرات بصورة مبسطة.
+- استخدم الخطوط لتمثيل الروابط الكيميائية.
+- استخدم group أو molecule لتجميع الذرات والروابط.
+- اكتب الرموز الكيميائية الصحيحة.
+- وضح المتفاعلات والنواتج بأسهم.
+- لا تخترع تركيبًا جزيئيًا غير صحيح.
+
+الأحياء:
+- استخدم cell عند شرح الخلية.
+- استخدم الدوائر والمسارات لتوضيح الأجزاء والعمليات.
+- ضع أسماء الأجزاء بجانبها.
+- وضح تسلسل العمليات الحيوية خطوة بخطوة.
+
+الجغرافيا:
+- استخدم path وpolygon لرسم أشكال خرائط تخطيطية مبسطة.
+- استخدم map-pin لتحديد المواقع.
+- استخدم خطوطًا لتمثيل خطوط الطول والعرض وخط الاستواء.
+- اكتب أسماء الأماكن بوضوح.
+- لا تدّعِ أن الرسم خريطة دقيقة إذا كان تخطيطيًا.
+
+التاريخ:
+- استخدم timeline-marker وخطوطًا أفقية لخطوط الزمن.
+- ضع الأحداث والتواريخ بترتيبها الصحيح.
+- لا تخترع تواريخ أو أحداثًا غير مؤكدة.
+
+اللغة العربية واللغات:
+- استخدم text لعرض الكلمات والحروف.
+- وضح التشكيل أو تقسيم الكلمة عند الحاجة.
+- عند شرح خطوات كتابة حرف، استخدم path أو polyline لمسار الكتابة إذا كنت متأكدًا من المسار.
+- لا تدّعِ أن مجرد ظهور الحرف يعني شرح طريقة كتابته.
+
+مهم:
+- لا تستخدم قالبًا واحدًا لكل المواد.
+- اختر الرسومات بناءً على السؤال والدرس الفعلي.
+- إذا كان الرسم غير ضروري، اترك السبورة فارغة بدلًا من اختراع رسم.
+- لا تضع رسومات علمية غير دقيقة لمجرد ملء السبورة.
 
 الهدف:
-شرح دقيق ومفهوم باللهجة المصرية، مع سبورة مرتبطة بالشرح.
+شرح دقيق ومفهوم باللهجة المصرية، مع سبورة مرتبطة بالشرح الفعلي.
 `;
 
   try {
