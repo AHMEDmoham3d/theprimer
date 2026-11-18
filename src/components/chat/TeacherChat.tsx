@@ -1186,7 +1186,7 @@ export function TeacherChat({
         </div>
 
         <div className="border-t border-[#2a2a2a] bg-[#111111] p-3">
-          <div className="mb-3 flex flex-col items-center gap-2 rounded-2xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.08] to-transparent px-4 py-4 text-center">
+          <div className="mb-2 flex flex-col items-center gap-1.5 rounded-2xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.08] to-transparent px-3 py-2 text-center">
             <button
               type="button"
               onClick={toggleVoiceInput}
@@ -1198,7 +1198,7 @@ export function TeacherChat({
                 isTutorSpeaking
               }
               className={cn(
-                'flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
+                'flex h-12 w-12 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
                 isListening
                   ? 'animate-pulse border-red-400 bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.35)]'
                   : 'border-emerald-400/40 bg-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.18)] hover:scale-105 hover:bg-emerald-400'
@@ -1209,7 +1209,7 @@ export function TeacherChat({
               {isListening ? <MicOff size={24} /> : <Mic size={24} />}
             </button>
 
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               <p className="text-sm font-semibold text-white">
                 {isListening
                   ? 'أنا بسمعك... اضغط الميكروفون لما تخلص'
@@ -1217,7 +1217,7 @@ export function TeacherChat({
                     ? 'المدرس بيشرح لك بالصوت'
                     : 'اتكلم مع مدرسك مباشرة'}
               </p>
-              <p className="text-[11px] text-neutral-500">
+              <p className="text-[10px] text-neutral-500">
                 {isListening
                   ? 'كلامك هيتحوّل لنص ويتبعت تلقائيًا لما تخلص'
                   : 'اضغط على الميكروفون وابدأ كلامك — والرد هيكون صوت وكتابة'}
@@ -1357,7 +1357,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
       <div
         className={cn(
-          'max-w-[80%] min-w-0 space-y-3',
+          isAI
+            ? 'w-full max-w-5xl min-w-0 space-y-3'
+            : 'max-w-[80%] min-w-0 space-y-3',
           !isAI && 'items-end'
         )}
       >
@@ -1479,7 +1481,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <Whiteboard
             steps={message.whiteboardSteps}
             autoPlay
-            className="max-w-md"
+            className="w-full max-w-none"
           />
         )}
 

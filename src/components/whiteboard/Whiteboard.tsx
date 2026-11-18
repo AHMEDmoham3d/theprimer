@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import {
   Play,
@@ -149,15 +148,18 @@ export function Whiteboard({
   return (
     <div
       className={cn(
-        'flex flex-col overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#141414]',
+        'flex w-full flex-col overflow-hidden rounded-2xl border border-neutral-300 bg-white shadow-lg',
         className
       )}
     >
-      <div className="relative aspect-[16/10] w-full bg-[#0f0f0f]">
+      {/* Drawing area */}
+      <div className="relative h-[min(65vh,520px)] min-h-[320px] w-full bg-[#fbfcfe] sm:min-h-[400px]">
         <svg
           viewBox="0 0 500 320"
           className="h-full w-full"
           preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="السبورة التعليمية"
         >
           <defs>
             <pattern
@@ -169,8 +171,8 @@ export function Whiteboard({
               <path
                 d="M 25 0 L 0 0 0 25"
                 fill="none"
-                stroke="#1a1a1a"
-                strokeWidth="0.5"
+                stroke="#e8edf3"
+                strokeWidth="0.8"
               />
             </pattern>
           </defs>
@@ -245,15 +247,15 @@ export function Whiteboard({
         </svg>
 
         {safeSteps.length > 0 && (
-          <div className="absolute left-3 top-3 flex gap-1.5">
+          <div className="absolute left-3 top-3 flex gap-1.5 rounded-full bg-white/90 px-2 py-2 shadow-sm">
             {safeSteps.map((_, index) => (
               <div
                 key={index}
                 className={cn(
-                  'h-1.5 rounded-full transition-all duration-300',
+                  'h-2 rounded-full transition-all duration-300',
                   index <= currentStep
-                    ? 'w-6 bg-white'
-                    : 'w-1.5 bg-neutral-700'
+                    ? 'w-7 bg-blue-600'
+                    : 'w-2 bg-neutral-300'
                 )}
               />
             ))}
@@ -261,76 +263,78 @@ export function Whiteboard({
         )}
 
         {currentStepData?.label && (
-          <div className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+          <div className="absolute bottom-3 right-3 max-w-[80%] rounded-lg border border-neutral-200 bg-white/95 px-3 py-2 text-sm font-semibold text-neutral-800 shadow-sm">
             {currentStepData.label}
           </div>
         )}
 
         {safeSteps.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-500">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-neutral-700">
-              <Play size={20} />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-neutral-500">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-neutral-300 bg-white shadow-sm">
+              <Play size={22} />
             </div>
 
-            <p className="text-sm">
+            <p className="text-base font-semibold text-neutral-600">
               السبورة جاهزة للشرح
             </p>
 
-            <p className="text-xs text-neutral-600">
+            <p className="text-sm text-neutral-400">
               ستظهر الرسومات هنا أثناء الشرح
             </p>
           </div>
         )}
       </div>
 
+      {/* Narration */}
       {showNarration && currentStepData?.narration && (
-        <div className="flex items-start gap-2 border-t border-[#2a2a2a] bg-[#161616] px-4 py-3">
+        <div className="flex items-start gap-3 border-t border-neutral-200 bg-neutral-50 px-4 py-3">
           <Volume2
-            size={16}
-            className="mt-0.5 shrink-0 text-neutral-400"
+            size={18}
+            className="mt-0.5 shrink-0 text-blue-600"
           />
 
-          <p className="text-sm leading-relaxed text-neutral-200">
+          <p className="text-sm leading-7 text-neutral-800">
             {currentStepData.narration}
           </p>
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-[#2a2a2a] bg-[#141414] px-4 py-3">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white px-3 py-3 sm:px-4">
         <button
           onClick={reset}
           disabled={safeSteps.length === 0}
           title="إعادة من البداية"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-30"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 transition hover:bg-neutral-100 hover:text-blue-700 disabled:opacity-30"
         >
-          <RotateCcw size={16} />
+          <RotateCcw size={17} />
         </button>
 
         <button
           onClick={prev}
           disabled={currentStep === 0 || safeSteps.length === 0}
           title="الخطوة السابقة"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-30"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 transition hover:bg-neutral-100 hover:text-blue-700 disabled:opacity-30"
         >
-          <SkipBack size={16} />
+          <SkipBack size={17} />
         </button>
 
         {isPlaying ? (
           <button
             onClick={pause}
             title="إيقاف مؤقت"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-neutral-200"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700"
           >
-            <Pause size={18} />
+            <Pause size={19} />
           </button>
         ) : (
           <button
             onClick={play}
             disabled={safeSteps.length === 0}
             title="تشغيل"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-neutral-200 disabled:opacity-30"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-30"
           >
-            <Play size={18} className="mr-0.5" />
+            <Play size={19} className="mr-0.5" />
           </button>
         )}
 
@@ -341,12 +345,12 @@ export function Whiteboard({
             safeSteps.length === 0
           }
           title="الخطوة التالية"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-800 hover:text-white disabled:opacity-30"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-600 transition hover:bg-neutral-100 hover:text-blue-700 disabled:opacity-30"
         >
-          <SkipForward size={16} />
+          <SkipForward size={17} />
         </button>
 
-        <div className="mr-auto text-xs tabular-nums text-neutral-500">
+        <div className="mr-auto text-xs font-medium tabular-nums text-neutral-500">
           {safeSteps.length > 0
             ? `${currentStep + 1} / ${safeSteps.length}`
             : '0 / 0'}
@@ -355,10 +359,10 @@ export function Whiteboard({
         <button
           onClick={() => setShowNarration((visible) => !visible)}
           className={cn(
-            'rounded-lg px-3 py-1.5 text-xs font-medium transition',
+            'rounded-lg px-3 py-2 text-xs font-semibold transition',
             showNarration
-              ? 'bg-neutral-800 text-white'
-              : 'text-neutral-500 hover:text-white'
+              ? 'bg-blue-50 text-blue-700'
+              : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800'
           )}
         >
           {showNarration ? 'إخفاء الشرح' : 'إظهار الشرح'}
@@ -377,17 +381,16 @@ export function ShapeRenderer({
   if (!shape) return null;
 
   const delay = Math.max(0, shape.delayMs ?? 0);
-  const color = shape.color || '#3b82f6';
-  const strokeWidth = shape.strokeWidth ?? 2.5;
+  const color = shape.color || '#2563eb';
+  const strokeWidth = Math.max(2.5, shape.strokeWidth ?? 3);
   const duration = Math.max(100, shape.durationMs ?? 900);
 
   const fill = shape.fill ?? 'none';
-  const fillOpacity = shape.fillOpacity ?? 0.15;
+  const fillOpacity = shape.fillOpacity ?? 0.18;
   const opacity = shape.opacity ?? 1;
 
   const lineCap = shape.lineCap ?? 'round';
 
-  // React SVG typings support only round, bevel, and miter here.
   const lineJoin: 'round' | 'bevel' | 'miter' =
     shape.lineJoin === 'bevel' || shape.lineJoin === 'miter'
       ? shape.lineJoin
@@ -518,9 +521,9 @@ export function ShapeRenderer({
           x={shape.x1 ?? 0}
           y={shape.y1 ?? 0}
           fill={color}
-          fontSize={shape.fontSize ?? 16}
+          fontSize={shape.fontSize ?? 18}
           fontFamily={shape.fontFamily ?? 'Cairo, sans-serif'}
-          fontWeight={shape.fontWeight ?? 600}
+          fontWeight={shape.fontWeight ?? 700}
           textAnchor={shape.textAnchor ?? 'start'}
           opacity={opacity}
           className="wb-fade"
