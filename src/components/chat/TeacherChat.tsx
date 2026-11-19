@@ -117,7 +117,7 @@ export function TeacherChat({
   const [speechDraft, setSpeechDraft] = useState('');
   const [isTutorSpeaking, setIsTutorSpeaking] = useState(false);
   const [voiceOn] = useState(true);
-  const [muted] = useState(false);
+  const [micMuted, setMicMuted] = useState(true);
   const [typing, setTyping] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -154,6 +154,9 @@ export function TeacherChat({
   const speechRecognitionRef = useRef<TutorSpeechRecognition | null>(null);
   const voiceFinalTranscriptRef = useRef('');
   const submitVoiceOnEndRef = useRef(true);
+  const micEnabledRef = useRef(false);
+  const tutorSpeakingRef = useRef(false);
+  const tutorSpeechTextRef = useRef('');
 
   // Scroll to the latest message.
   useEffect(() => {
@@ -320,6 +323,9 @@ export function TeacherChat({
     const currentRequestId = ++requestIdRef.current;
 
     stopTutorAudio();
+    micEnabledRef.current = false;
+    setMicMuted(true);
+    tutorSpeakingRef.current = false;
     setMessages([]);
     setConversation(null);
     setConversationLoading(false);
@@ -498,6 +504,7 @@ export function TeacherChat({
     return () => {
       requestIdRef.current++;
       submitVoiceOnEndRef.current = false;
+      micEnabledRef.current = false;
       speechRecognitionRef.current?.abort();
       speechRecognitionRef.current = null;
       stopTutorAudio();
@@ -589,7 +596,7 @@ export function TeacherChat({
     }
   ) => {
     const currentRequestId = requestIdRef.current;
-    const useVoice = voiceOn && !muted;
+    const useVoice = voiceOn;
     let responseText = '';
     let receivedFirstChunk = false;
 
@@ -706,13 +713,25 @@ export function TeacherChat({
 
     if (useVoice && responseText.trim()) {
       try {
+        // Open the microphone while the tutor speaks so the student can interrupt.
+        tutorSpeechTextRef.current = responseText;
+        tutorSpeakingRef.current = true;
         setIsTutorSpeaking(true);
+        micEnabledRef.current = true;
+        setMicMuted(false);
+        startVoiceInput(true);
         await playTutorAudio(responseText);
       } catch (error) {
         console.warn('Tutor audio playback failed:', error);
       } finally {
+        tutorSpeakingRef.current = false;
         setIsTutorSpeaking(false);
+        if (micEnabledRef.current && !speechRecognitionRef.current) {
+          startVoiceInput(true);
+        }
       }
+    } else if (micEnabledRef.current && !speechRecognitionRef.current) {
+      startVoiceInput(true);
     }
 
     if (currentRequestId === requestIdRef.current) {
@@ -862,6 +881,8 @@ export function TeacherChat({
 
   const cancelVoiceInput = () => {
     submitVoiceOnEndRef.current = false;
+    micEnabledRef.current = false;
+    setMicMuted(true);
     if (speechRecognitionRef.current) {
       speechRecognitionRef.current.abort();
       speechRecognitionRef.current = null;
@@ -871,8 +892,14 @@ export function TeacherChat({
     setIsListening(false);
   };
 
-  const startVoiceInput = () => {
-    if (typing || conversationLoading || !conversation) return;
+  const startVoiceInput = (allowDuringTutor = false) => {
+    if (
+      (!allowDuringTutor && typing) ||
+      conversationLoading ||
+      !conversation ||
+      !micEnabledRef.current ||
+      speechRecognitionRef.current
+    ) return;
 
     const speechWindow = window as WindowWithSpeechRecognition;
     const SpeechRecognitionApi =
@@ -882,6 +909,8 @@ export function TeacherChat({
       setStudentLoadError(
         'المتصفح الحالي لا يدعم الإدخال الصوتي المباشر. افتح The Primer باستخدام Google Chrome أو استخدم الكتابة.'
       );
+      micEnabledRef.current = false;
+      setMicMuted(true);
       return;
     }
 
@@ -889,11 +918,12 @@ export function TeacherChat({
       setStudentLoadError(
         'الميكروفون يحتاج إلى اتصال آمن HTTPS. افتح الموقع من رابطه الآمن ثم جرّب مرة أخرى.'
       );
+      micEnabledRef.current = false;
+      setMicMuted(true);
       return;
     }
 
-    stopTutorAudio();
-    setIsTutorSpeaking(false);
+    // Do not stop tutor audio here: recognition must remain active during speech.
     setStudentLoadError('');
     setSpeechDraft('');
     voiceFinalTranscriptRef.current = '';
@@ -901,7 +931,7 @@ export function TeacherChat({
 
     const recognition = new SpeechRecognitionApi();
     recognition.lang = activeSubject === 'english' ? 'en-US' : 'ar-EG';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
 
     recognition.onresult = (event) => {
@@ -917,8 +947,39 @@ export function TeacherChat({
         }
       }
 
+      const combinedText = `${finalText} ${interimText}`.trim();
       voiceFinalTranscriptRef.current = finalText.trim();
-      setSpeechDraft(`${finalText} ${interimText}`.trim());
+      setSpeechDraft(combinedText);
+
+      // Ignore text that appears to be the tutor's own voice being picked up
+      // by the microphone. If a different phrase is detected, interrupt playback.
+      if (tutorSpeakingRef.current && combinedText.length >= 3) {
+        const normalize = (value: string) =>
+          value
+            .toLocaleLowerCase('ar-EG')
+            .replace(/[ًٌٍَُِّْـ]/g, '')
+            .replace(/[.,،؛:!?؟"'()\[\]{}]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const heard = normalize(combinedText);
+        const tutorText = normalize(tutorSpeechTextRef.current);
+        const looksLikeTutorEcho =
+          heard.length >= 5 &&
+          (tutorText.includes(heard) ||
+            heard.includes(tutorText.slice(0, Math.min(heard.length, 18))));
+
+        if (looksLikeTutorEcho) {
+          // Do not let the tutor's own playback become a fake student question.
+          voiceFinalTranscriptRef.current = '';
+          setSpeechDraft('');
+          return;
+        }
+
+        stopTutorAudio();
+        tutorSpeakingRef.current = false;
+        setIsTutorSpeaking(false);
+      }
     };
 
     recognition.onerror = (event) => {
@@ -927,7 +988,7 @@ export function TeacherChat({
         'service-not-allowed': 'خدمة التعرف على الصوت غير متاحة من المتصفح حاليًا.',
         'audio-capture': 'لم يتم العثور على ميكروفون متصل بالجهاز.',
         network: 'حدثت مشكلة في الاتصال أثناء تحويل صوتك إلى نص. حاول مرة أخرى.',
-        'no-speech': 'لم أسمع صوتًا واضحًا. اضغط على الميكروفون وحاول مرة أخرى.',
+        'no-speech': 'لم أسمع صوتًا واضحًا. حاول الكلام مرة أخرى.',
       };
 
       if (event.error !== 'aborted') {
@@ -938,13 +999,25 @@ export function TeacherChat({
     };
 
     recognition.onend = () => {
-      speechRecognitionRef.current = null;
+      if (speechRecognitionRef.current === recognition) {
+        speechRecognitionRef.current = null;
+      }
       setIsListening(false);
 
       const finalTranscript = voiceFinalTranscriptRef.current.trim();
       if (submitVoiceOnEndRef.current && finalTranscript) {
+        // The student's utterance is complete. send() will stop this recognition
+        // session and the tutor will automatically reopen the mic after replying.
+        micEnabledRef.current = true;
         void send(finalTranscript);
-      } else if (submitVoiceOnEndRef.current && !finalTranscript) {
+      } else if (submitVoiceOnEndRef.current && micEnabledRef.current && !typing) {
+        // SpeechRecognition can end after a short silence; reopen it automatically.
+        window.setTimeout(() => {
+          if (micEnabledRef.current && !speechRecognitionRef.current) {
+            startVoiceInput(true);
+          }
+        }, 250);
+      } else {
         setSpeechDraft('');
       }
     };
@@ -963,16 +1036,26 @@ export function TeacherChat({
   };
 
   const toggleVoiceInput = () => {
-    if (isListening && speechRecognitionRef.current) {
-      // Stopping the microphone submits the final recognized sentence.
-      speechRecognitionRef.current.stop();
+    if (micEnabledRef.current) {
+      micEnabledRef.current = false;
+      setMicMuted(true);
+      submitVoiceOnEndRef.current = false;
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.abort();
+        speechRecognitionRef.current = null;
+      }
+      setIsListening(false);
+      setSpeechDraft('');
+      voiceFinalTranscriptRef.current = '';
       return;
     }
 
-    startVoiceInput();
+    micEnabledRef.current = true;
+    setMicMuted(false);
+    startVoiceInput(true);
   };
 
-  const voiceActive = voiceOn && !muted;
+  const voiceActive = voiceOn && !micMuted;
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-3 md:flex-row">
@@ -1193,9 +1276,7 @@ export function TeacherChat({
               disabled={
                 availableSubjects.length === 0 ||
                 conversationLoading ||
-                curriculumLessonsLoading ||
-                typing ||
-                isTutorSpeaking
+                curriculumLessonsLoading
               }
               className={cn(
                 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
@@ -1203,24 +1284,26 @@ export function TeacherChat({
                   ? 'animate-pulse border-red-400 bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]'
                   : 'border-emerald-400/40 bg-emerald-500 text-white shadow-[0_0_16px_rgba(16,185,129,0.15)] hover:bg-emerald-400'
               )}
-              aria-label={isListening ? 'إنهاء التسجيل وإرسال الكلام' : 'التحدث مع المدرس بالصوت'}
-              title={isListening ? 'اضغط لإنهاء كلامك وإرساله' : 'اضغط وتحدث مع المدرس'}
+              aria-label={micMuted ? 'تشغيل الميكروفون' : 'كتم الميكروفون'}
+              title={micMuted ? 'تشغيل الميكروفون' : 'كتم الميكروفون'}
             >
-              {isListening ? <MicOff size={19} /> : <Mic size={19} />}
+              {micMuted ? <MicOff size={19} /> : <Mic size={19} />}
             </button>
 
             <div className="min-w-0 flex-1 space-y-0.5 text-right">
               <p className="text-xs font-semibold leading-5 text-white">
-                {isListening
-                  ? 'أنا بسمعك... اضغط الميكروفون لما تخلص'
-                  : isTutorSpeaking
-                    ? 'المدرس بيشرح لك بالصوت'
-                    : 'اتكلم مع مدرسك مباشرة'}
+                {micMuted
+                  ? 'الميكروفون مكتوم'
+                  : isListening
+                    ? isTutorSpeaking
+                      ? 'المدرس بيشرح وتقدر تقاطعه في أي وقت'
+                      : 'أنا بسمعك... اتكلم براحتك'
+                    : 'الميكروفون هيفتح تلقائيًا'}
               </p>
               <p className="text-[10px] leading-4 text-neutral-500">
-                {isListening
-                  ? 'كلامك هيتحوّل لنص ويتبعت تلقائيًا لما تخلص'
-                  : 'اضغط على الميكروفون وابدأ كلامك — والرد هيكون صوت وكتابة'}
+                {micMuted
+                  ? 'اضغط على الميكروفون لتشغيله، وهيفضل متاحًا أثناء الشرح'
+                  : 'اتكلم في أي وقت؛ هوقف صوت المدرس وأسمع سؤالك تلقائيًا'}
               </p>
             </div>
           </div>
