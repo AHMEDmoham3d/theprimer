@@ -153,6 +153,7 @@ export function TeacherChat({
   const autoStartedConversationsRef = useRef<Set<string>>(new Set());
   const speechRecognitionRef = useRef<TutorSpeechRecognition | null>(null);
   const voiceFinalTranscriptRef = useRef('');
+  const voiceSubmitTimerRef = useRef<number | null>(null);
   const submitVoiceOnEndRef = useRef(true);
   const micEnabledRef = useRef(false);
   const tutorSpeakingRef = useRef(false);
@@ -783,6 +784,11 @@ export function TeacherChat({
 
     if (!content || typing) return;
 
+    if (voiceSubmitTimerRef.current !== null) {
+      clearTimeout(voiceSubmitTimerRef.current);
+      voiceSubmitTimerRef.current = null;
+    }
+
     if (speechRecognitionRef.current) {
       submitVoiceOnEndRef.current = false;
       speechRecognitionRef.current.abort();
@@ -881,6 +887,10 @@ export function TeacherChat({
 
   const cancelVoiceInput = () => {
     submitVoiceOnEndRef.current = false;
+    if (voiceSubmitTimerRef.current !== null) {
+      clearTimeout(voiceSubmitTimerRef.current);
+      voiceSubmitTimerRef.current = null;
+    }
     micEnabledRef.current = false;
     setMicMuted(true);
     if (speechRecognitionRef.current) {
@@ -927,6 +937,10 @@ export function TeacherChat({
     setStudentLoadError('');
     setSpeechDraft('');
     voiceFinalTranscriptRef.current = '';
+    if (voiceSubmitTimerRef.current !== null) {
+      clearTimeout(voiceSubmitTimerRef.current);
+      voiceSubmitTimerRef.current = null;
+    }
     submitVoiceOnEndRef.current = true;
 
     const recognition = new SpeechRecognitionApi();
@@ -980,6 +994,27 @@ export function TeacherChat({
         tutorSpeakingRef.current = false;
         setIsTutorSpeaking(false);
       }
+
+      // Submit the student's completed phrase after a short pause.
+      // Continuous recognition may stay open and never fire onend between phrases.
+      if (finalText.trim() && !tutorSpeakingRef.current) {
+        if (voiceSubmitTimerRef.current !== null) {
+          clearTimeout(voiceSubmitTimerRef.current);
+        }
+
+        voiceSubmitTimerRef.current = window.setTimeout(() => {
+          voiceSubmitTimerRef.current = null;
+          const transcriptToSend = voiceFinalTranscriptRef.current.trim();
+
+          if (
+            submitVoiceOnEndRef.current &&
+            micEnabledRef.current &&
+            transcriptToSend
+          ) {
+            void send(transcriptToSend);
+          }
+        }, 1100);
+      }
     };
 
     recognition.onerror = (event) => {
@@ -1005,9 +1040,13 @@ export function TeacherChat({
       setIsListening(false);
 
       const finalTranscript = voiceFinalTranscriptRef.current.trim();
+      if (voiceSubmitTimerRef.current !== null) {
+        clearTimeout(voiceSubmitTimerRef.current);
+        voiceSubmitTimerRef.current = null;
+      }
+
       if (submitVoiceOnEndRef.current && finalTranscript) {
-        // The student's utterance is complete. send() will stop this recognition
-        // session and the tutor will automatically reopen the mic after replying.
+        // Submit immediately if the browser ends recognition before the pause timer.
         micEnabledRef.current = true;
         void send(finalTranscript);
       } else if (submitVoiceOnEndRef.current && micEnabledRef.current && !typing) {
