@@ -1186,7 +1186,7 @@ export function TeacherChat({
         </div>
 
         <div className="border-t border-[#2a2a2a] bg-[#111111] p-3">
-          <div className="mb-2 flex flex-col items-center gap-1.5 rounded-2xl border border-emerald-500/20 bg-gradient-to-b from-emerald-500/[0.08] to-transparent px-3 py-2 text-center">
+          <div className="mb-2 flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-gradient-to-l from-emerald-500/[0.08] to-transparent px-2.5 py-1.5">
             <button
               type="button"
               onClick={toggleVoiceInput}
@@ -1198,41 +1198,41 @@ export function TeacherChat({
                 isTutorSpeaking
               }
               className={cn(
-                'flex h-12 w-12 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
+                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40',
                 isListening
-                  ? 'animate-pulse border-red-400 bg-red-500 text-white shadow-[0_0_30px_rgba(239,68,68,0.35)]'
-                  : 'border-emerald-400/40 bg-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.18)] hover:scale-105 hover:bg-emerald-400'
+                  ? 'animate-pulse border-red-400 bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]'
+                  : 'border-emerald-400/40 bg-emerald-500 text-white shadow-[0_0_16px_rgba(16,185,129,0.15)] hover:bg-emerald-400'
               )}
               aria-label={isListening ? 'إنهاء التسجيل وإرسال الكلام' : 'التحدث مع المدرس بالصوت'}
               title={isListening ? 'اضغط لإنهاء كلامك وإرساله' : 'اضغط وتحدث مع المدرس'}
             >
-              {isListening ? <MicOff size={24} /> : <Mic size={24} />}
+              {isListening ? <MicOff size={19} /> : <Mic size={19} />}
             </button>
 
-            <div className="space-y-0.5">
-              <p className="text-sm font-semibold text-white">
+            <div className="min-w-0 flex-1 space-y-0.5 text-right">
+              <p className="text-xs font-semibold leading-5 text-white">
                 {isListening
                   ? 'أنا بسمعك... اضغط الميكروفون لما تخلص'
                   : isTutorSpeaking
                     ? 'المدرس بيشرح لك بالصوت'
                     : 'اتكلم مع مدرسك مباشرة'}
               </p>
-              <p className="text-[10px] text-neutral-500">
+              <p className="text-[10px] leading-4 text-neutral-500">
                 {isListening
                   ? 'كلامك هيتحوّل لنص ويتبعت تلقائيًا لما تخلص'
                   : 'اضغط على الميكروفون وابدأ كلامك — والرد هيكون صوت وكتابة'}
               </p>
             </div>
-
-            {speechDraft && (
-              <div
-                dir="auto"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-right text-xs leading-6 text-neutral-300"
-              >
-                {speechDraft}
-              </div>
-            )}
           </div>
+
+          {speechDraft && (
+            <div
+              dir="auto"
+              className="mb-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-right text-xs leading-6 text-neutral-300"
+            >
+              {speechDraft}
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <input
