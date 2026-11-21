@@ -113,16 +113,25 @@ export default async function handler(
 
     formData.append(
       'model',
-      'whisper-large-v3-turbo'
+      'whisper-large-v3'
     );
 
-    formData.append('language', 'ar');
     formData.append('response_format', 'json');
     formData.append('temperature', '0');
 
     formData.append(
       'prompt',
-      'محادثة تعليمية بين طالب ومدرس مصري. الكلام باللهجة المصرية العامية. حافظ على الكلمات العربية والمصطلحات العلمية والرياضية كما نطقها المتحدث.'
+      [
+        'Transcribe the audio exactly as spoken.',
+        'Preserve the speaker original language and wording.',
+        'If the speaker uses Egyptian Arabic, write Egyptian colloquial Arabic exactly as spoken, not Modern Standard Arabic.',
+        'If the speaker uses English, write in English.',
+        'If the speaker mixes Arabic and English, preserve both languages in the same transcript.',
+        'Do not translate, paraphrase, summarize, rewrite, or correct the speaker.',
+        'Do not replace colloquial words with formal Arabic words.',
+        'Preserve technical, scientific, mathematical, and programming terms in their original language.',
+        'Do not add words that the speaker did not say.',
+      ].join(' ')
     );
 
     const response = await fetch(
