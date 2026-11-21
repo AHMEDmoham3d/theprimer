@@ -33,6 +33,7 @@ import {
 import { askAITutor, type TutorLessonContext } from '@/lib/ai';
 import { fetchStudentSubjectLessons } from '@/lib/studentCurriculum';
 import { playTutorAudio, stopTutorAudio } from '@/lib/tts';
+import { StudentVoiceListener } from '@/lib/studentVoice';
 import {
   getOrCreateTutorConversation,
   fetchTutorMessages,
@@ -40,55 +41,20 @@ import {
   updateTutorConversationProgress,
   type TutorConversationRow,
 } from '@/lib/tutorConversations';
-
 interface TeacherChatProps {
   messages: ChatMessage[];
   studentName: string;
 }
-
 interface SubjectDisplayName {
   label: string;
   labelAr: string;
 }
-
-// Browser speech-recognition types are declared locally because they are not
-// included in every TypeScript DOM library version.
-interface TutorSpeechRecognitionResult {
-  isFinal: boolean;
-  0: { transcript: string };
-}
-
-interface TutorSpeechRecognitionEvent {
-  results: { length: number; [index: number]: TutorSpeechRecognitionResult };
-}
-
-interface TutorSpeechRecognition {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: TutorSpeechRecognitionEvent) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-type TutorSpeechRecognitionConstructor = new () => TutorSpeechRecognition;
-
-type WindowWithSpeechRecognition = Window & {
-  SpeechRecognition?: TutorSpeechRecognitionConstructor;
-  webkitSpeechRecognition?: TutorSpeechRecognitionConstructor;
-};
-
 // Supports both predefined and custom subjects added by the admin.
 function getSubjectMeta(subject: Subject) {
   const meta = SUBJECT_META[subject];
-
   if (meta) {
     return meta;
   }
-
   return {
     label: subject,
     labelAr: subject,
@@ -97,7 +63,6 @@ function getSubjectMeta(subject: Subject) {
     accentSoft: '#262626',
   };
 }
-
 export function TeacherChat({
   messages: initialMessages,
   studentName,
@@ -107,11 +72,9 @@ export function TeacherChat({
     typeof window !== 'undefined'
       ? localStorage.getItem('current_student_id') || ''
       : '';
-
   const [messages, setMessages] = useState<ChatMessage[]>(
     initialMessages || []
   );
-
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [speechDraft, setSpeechDraft] = useState('');
@@ -123,42 +86,34 @@ export function TeacherChat({
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeSubject, setActiveSubject] = useState<Subject | ''>('');
   const [subjectBarOpen, setSubjectBarOpen] = useState(true);
-
   const [dbProgress, setDbProgress] = useState<StudentProgressRow[]>([]);
   const [dbSchedule, setDbSchedule] = useState<ScheduleSlotRow[]>([]);
   const [dbLessons, setDbLessons] = useState<LessonMasteryRow[]>([]);
-
   const [studentCurriculum, setStudentCurriculum] = useState(
     'جاري تحميل المنهج...'
   );
-
   const [studentStage, setStudentStage] = useState('');
   const [studentGrade, setStudentGrade] = useState('');
   const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
   const [curriculumLessons, setCurriculumLessons] = useState<TutorLessonContext[]>([]);
   const [curriculumLessonsLoading, setCurriculumLessonsLoading] = useState(false);
-
   // Dynamic names returned from curriculum_grade_subjects.
   const [subjectDisplayNames, setSubjectDisplayNames] = useState<
     Record<string, SubjectDisplayName>
   >({});
-
   const [studentLoadError, setStudentLoadError] = useState('');
   const [conversation, setConversation] =
     useState<TutorConversationRow | null>(null);
   const [conversationLoading, setConversationLoading] = useState(false);
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
   const autoStartedConversationsRef = useRef<Set<string>>(new Set());
-  const speechRecognitionRef = useRef<TutorSpeechRecognition | null>(null);
-  const voiceFinalTranscriptRef = useRef('');
-  const voiceSubmitTimerRef = useRef<number | null>(null);
-  const submitVoiceOnEndRef = useRef(true);
+  const studentVoiceRef = useRef<StudentVoiceListener | null>(null);
   const micEnabledRef = useRef(false);
+  const micManuallyMutedRef = useRef(false);
   const tutorSpeakingRef = useRef(false);
   const tutorSpeechTextRef = useRef('');
-
+  const voiceInterruptingTutorRef = useRef(false);
   // Scroll to the latest message.
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -166,11 +121,9 @@ export function TeacherChat({
       behavior: 'smooth',
     });
   }, [messages, typing, drawing]);
-
   // Load the selected student's actual curriculum, stage, grade, and subjects.
   useEffect(() => {
     let cancelled = false;
-
     async function loadStudentData() {
       setDbProgress([]);
       setDbSchedule([]);
@@ -183,55 +136,40 @@ export function TeacherChat({
       setStudentGrade('');
       setActiveSubject('');
       setStudentLoadError('');
-
       if (!activeStudentId) {
         setStudentCurriculum('لم يتم تحديد الطالب');
-
         setStudentLoadError(
           'معرّف الطالب غير موجود. سجّل دخول الطالب أو أكمل تسجيله أولًا.'
         );
-
         return;
       }
-
       try {
         const student = await fetchStudentById(activeStudentId);
-
         if (cancelled) return;
-
         if (!student) {
           setStudentCurriculum('تعذّر تحميل المنهج');
-
           setStudentLoadError(
             'لم نتمكن من تحميل بيانات الطالب. تأكد من تسجيل الدخول وصلاحيات قاعدة البيانات.'
           );
-
           return;
         }
-
         setStudentCurriculum(
           student.curriculum_name || 'لم يتم تحديد المنهج'
         );
-
         setStudentStage(student.stage || '');
         setStudentGrade(student.grade_code || student.grade || '');
-
         if (!student.curriculum_id) {
           setStudentLoadError(
             'لم يتم ربط الطالب بمنهج دراسي حتى الآن.'
           );
-
           return;
         }
-
         if (!student.stage || !student.grade_code) {
           setStudentLoadError(
             'المرحلة أو الصف الدراسي غير محدد في بيانات الطالب.'
           );
-
           return;
         }
-
         const [progress, schedule, curriculumSubjects] =
           await Promise.all([
             fetchStudentProgress(activeStudentId),
@@ -242,22 +180,18 @@ export function TeacherChat({
               student.grade_code
             ),
           ]);
-
         if (cancelled) return;
-
         // Accept every valid active subject returned by the database.
         const validRows = curriculumSubjects.filter(
           (row) =>
             typeof row.subject_key === 'string' &&
             row.subject_key.trim().length > 0
         );
-
         const validSubjects = Array.from(
           new Set(
             validRows.map((row) => row.subject_key as Subject)
           )
         );
-
         // Keep only progress and schedule records belonging to
         // subjects that are currently active in this student's curriculum.
         setDbProgress(
@@ -265,19 +199,15 @@ export function TeacherChat({
             validSubjects.includes(item.subject as Subject)
           )
         );
-
         setDbSchedule(
           schedule.filter((item) =>
             validSubjects.includes(item.subject as Subject)
           )
         );
-
         // Keep the Arabic and English names supplied by the database.
         const namesMap: Record<string, SubjectDisplayName> = {};
-
         validRows.forEach((row) => {
           const key = row.subject_key;
-
           if (!namesMap[key]) {
             namesMap[key] = {
               label: row.subject_name || key,
@@ -285,44 +215,35 @@ export function TeacherChat({
             };
           }
         });
-
         setSubjectDisplayNames(namesMap);
         setAvailableSubjects(validSubjects);
-
         if (validSubjects.length > 0) {
           setActiveSubject(validSubjects[0]);
         } else {
           setActiveSubject('');
-
           setStudentLoadError(
             'لم يتم العثور على مواد نشطة مسجلة لهذا المنهج والمرحلة والصف. اطلب من مسؤول النظام إضافة المواد من صفحة الأدمن.'
           );
         }
       } catch (error) {
         console.error('Failed to load student data:', error);
-
         if (!cancelled) {
           setStudentCurriculum('تعذّر تحميل المنهج');
-
           setStudentLoadError(
             'حدث خطأ أثناء تحميل بيانات الطالب والمنهج.'
           );
         }
       }
     }
-
     void loadStudentData();
-
     return () => {
       cancelled = true;
     };
   }, [activeStudentId]);
-
   // Load a separate saved conversation whenever the selected subject changes.
   useEffect(() => {
     let cancelled = false;
     const currentRequestId = ++requestIdRef.current;
-
     stopTutorAudio();
     micEnabledRef.current = false;
     setMicMuted(true);
@@ -332,7 +253,6 @@ export function TeacherChat({
     setConversationLoading(false);
     setTyping(false);
     setDrawing(false);
-
     if (
       !activeStudentId ||
       !activeSubject ||
@@ -342,25 +262,19 @@ export function TeacherChat({
         cancelled = true;
       };
     }
-
     async function loadConversation() {
       setConversationLoading(true);
       setStudentLoadError('');
-
       try {
         const result = await getOrCreateTutorConversation(
           activeStudentId,
           activeSubject
         );
-
         if (cancelled || currentRequestId !== requestIdRef.current) return;
-
         const savedMessages = await fetchTutorMessages(
           result.conversation.id
         );
-
         if (cancelled || currentRequestId !== requestIdRef.current) return;
-
         setConversation(result.conversation);
         setMessages(
           savedMessages.map((message) => ({
@@ -375,7 +289,6 @@ export function TeacherChat({
         );
       } catch (error) {
         console.error('Failed to load tutor conversation:', error);
-
         if (!cancelled && currentRequestId === requestIdRef.current) {
           setStudentLoadError(
             'تعذّر تحميل محادثة المادة. راجع اتصال قاعدة البيانات وصلاحيات جداول المحادثات.'
@@ -387,18 +300,14 @@ export function TeacherChat({
         }
       }
     }
-
     void loadConversation();
-
     return () => {
       cancelled = true;
     };
   }, [activeStudentId, activeSubject, availableSubjects]);
-
   // Load lesson mastery only when a real student and a valid subject exist.
   useEffect(() => {
     let cancelled = false;
-
     if (
       !activeStudentId ||
       !activeSubject ||
@@ -407,7 +316,6 @@ export function TeacherChat({
       setDbLessons([]);
       return;
     }
-
     fetchLessonMasteryBySubject(activeStudentId, activeSubject)
       .then((res) => {
         if (!cancelled) {
@@ -416,23 +324,18 @@ export function TeacherChat({
       })
       .catch((error) => {
         console.error('Failed to load lesson mastery:', error);
-
         if (!cancelled) {
           setDbLessons([]);
         }
       });
-
     return () => {
       cancelled = true;
     };
   }, [activeStudentId, activeSubject, availableSubjects]);
-
   // Load only the lessons actually published for the selected subject.
   useEffect(() => {
     let cancelled = false;
-
     setCurriculumLessons([]);
-
     if (
       !activeStudentId ||
       !activeSubject ||
@@ -443,18 +346,14 @@ export function TeacherChat({
         cancelled = true;
       };
     }
-
     async function loadPublishedLessons() {
       setCurriculumLessonsLoading(true);
-
       try {
         const result = await fetchStudentSubjectLessons(
           activeStudentId,
           activeSubject
         );
-
         if (cancelled) return;
-
         // The loader returns lesson records containing their parent unit.
         // Accept a single record or an array to keep this integration tolerant
         // of the helper's return shape without inventing lesson data.
@@ -463,7 +362,6 @@ export function TeacherChat({
           : result
             ? [result]
             : [];
-
         const mappedLessons: TutorLessonContext[] = rows
           .filter((item) => item?.lesson && item?.unit)
           .map((item) => ({
@@ -475,11 +373,9 @@ export function TeacherChat({
             content: item.lesson.content || '',
             order: item.lesson.sort_order || 0,
           }));
-
         setCurriculumLessons(mappedLessons);
       } catch (error) {
         console.error('Failed to load published curriculum lessons:', error);
-
         if (!cancelled) {
           setCurriculumLessons([]);
           setStudentLoadError(
@@ -492,26 +388,21 @@ export function TeacherChat({
         }
       }
     }
-
     void loadPublishedLessons();
-
     return () => {
       cancelled = true;
     };
   }, [activeStudentId, activeSubject, availableSubjects]);
-
   // Stop audio and invalidate pending requests when the component unmounts.
   useEffect(() => {
     return () => {
       requestIdRef.current++;
-      submitVoiceOnEndRef.current = false;
       micEnabledRef.current = false;
-      speechRecognitionRef.current?.abort();
-      speechRecognitionRef.current = null;
+      studentVoiceRef.current?.stop();
+      studentVoiceRef.current = null;
       stopTutorAudio();
     };
   }, []);
-
   const currentActiveLesson = useMemo(() => {
     return (
       dbLessons.find(
@@ -519,7 +410,6 @@ export function TeacherChat({
       ) || dbLessons[0]
     );
   }, [dbLessons]);
-
   // Use database names for dynamic subjects and existing metadata for known ones.
   const activeBaseMeta = activeSubject
     ? getSubjectMeta(activeSubject)
@@ -530,19 +420,15 @@ export function TeacherChat({
         accent: '#9ca3af',
         accentSoft: '#262626',
       };
-
   const activeSubjectNames = activeSubject
     ? subjectDisplayNames[activeSubject]
     : undefined;
-
   const activeMeta = {
     ...activeBaseMeta,
     label: activeSubjectNames?.label || activeBaseMeta.label,
     labelAr: activeSubjectNames?.labelAr || activeBaseMeta.labelAr,
   };
-
   const ActiveIcon = activeMeta.icon;
-
   const getGradeContext = () => {
     return [
       studentCurriculum,
@@ -552,7 +438,6 @@ export function TeacherChat({
       .filter(Boolean)
       .join(' - ') || 'غير محدد';
   };
-
   const getSubjectContext = () => ({
     name: studentName,
     grade: getGradeContext(),
@@ -564,7 +449,6 @@ export function TeacherChat({
       .filter((progress) => progress.subject === activeSubject)
       .flatMap((progress) => progress.weaknesses || []),
   });
-
   const getConversationHistory = () =>
     messages
       .filter((message) => message.text?.trim())
@@ -573,7 +457,6 @@ export function TeacherChat({
         content: message.text,
       }))
       .slice(-30);
-
   const createAssistantMessage = (id: string): ChatMessage => ({
     id,
     role: 'ai',
@@ -586,7 +469,6 @@ export function TeacherChat({
     hasWhiteboard: false,
     whiteboardSteps: [],
   });
-
   const runTutorResponse = async (
     prompt: string,
     options: {
@@ -600,26 +482,22 @@ export function TeacherChat({
     const useVoice = voiceOn;
     let responseText = '';
     let receivedFirstChunk = false;
-
     setMessages((currentMessages) => [
       ...currentMessages,
       createAssistantMessage(options.messageId),
     ]);
     setTyping(true);
     setDrawing(false);
-
     try {
       responseText = await askAITutor(
         prompt,
         getSubjectContext(),
         (chunk) => {
           if (currentRequestId !== requestIdRef.current) return;
-
           if (!receivedFirstChunk) {
             receivedFirstChunk = true;
             setTyping(false);
           }
-
           setMessages((currentMessages) =>
             currentMessages.map((message) =>
               message.id === options.messageId
@@ -639,7 +517,6 @@ export function TeacherChat({
           curriculumLessons,
           onBoardSteps: (steps) => {
             if (currentRequestId !== requestIdRef.current) return;
-
             setMessages((currentMessages) =>
               currentMessages.map((message) =>
                 message.id === options.messageId
@@ -654,9 +531,7 @@ export function TeacherChat({
           },
         }
       );
-
       if (currentRequestId !== requestIdRef.current) return;
-
       setMessages((currentMessages) =>
         currentMessages.map((message) =>
           message.id === options.messageId
@@ -664,13 +539,11 @@ export function TeacherChat({
             : message
         )
       );
-
       await saveTutorMessage({
         conversationId: options.conversationRow.id,
         role: 'assistant',
         content: responseText,
       });
-
       if (currentActiveLesson) {
         await updateTutorConversationProgress(
           options.conversationRow.id,
@@ -691,12 +564,10 @@ export function TeacherChat({
       }
     } catch (error) {
       console.error('Tutor response error:', error);
-
       if (currentRequestId === requestIdRef.current) {
         const fallback =
           `يا ${studentName}، حصلت مشكلة أثناء تجهيز الإجابة. ` +
           'جرّب تاني بعد قليل.';
-
         setMessages((currentMessages) =>
           currentMessages.map((message) =>
             message.id === options.messageId
@@ -706,40 +577,37 @@ export function TeacherChat({
         );
       }
     }
-
     if (currentRequestId !== requestIdRef.current) return;
-
     setTyping(false);
     setDrawing(true);
-
     if (useVoice && responseText.trim()) {
       try {
         // Open the microphone while the tutor speaks so the student can interrupt.
         tutorSpeechTextRef.current = responseText;
         tutorSpeakingRef.current = true;
         setIsTutorSpeaking(true);
-        micEnabledRef.current = true;
-        setMicMuted(false);
-        startVoiceInput(true);
+        if (!micManuallyMutedRef.current) {
+          micEnabledRef.current = true;
+          setMicMuted(false);
+          await startVoiceInput(true);
+        }
         await playTutorAudio(responseText);
       } catch (error) {
         console.warn('Tutor audio playback failed:', error);
       } finally {
         tutorSpeakingRef.current = false;
         setIsTutorSpeaking(false);
-        if (micEnabledRef.current && !speechRecognitionRef.current) {
-          startVoiceInput(true);
+        if (micEnabledRef.current && !studentVoiceRef.current) {
+          await startVoiceInput(true);
         }
       }
-    } else if (micEnabledRef.current && !speechRecognitionRef.current) {
-      startVoiceInput(true);
+    } else if (micEnabledRef.current && !studentVoiceRef.current) {
+      await startVoiceInput(true);
     }
-
     if (currentRequestId === requestIdRef.current) {
       setDrawing(false);
     }
   };
-
   // The tutor opens the conversation proactively once per subject visit.
   useEffect(() => {
     if (
@@ -752,17 +620,13 @@ export function TeacherChat({
     ) {
       return;
     }
-
     autoStartedConversationsRef.current.add(conversation.id);
-
     const isFirstMessage = messages.length === 0;
     const prompt = isFirstMessage
       ? 'ابدأ أول حصة مع الطالب الآن. رحّب به باسمه، وابدأ تدريسه في المادة المحددة من منهجه الحالي بطريقة تفاعلية، ولا تنتظر أن يرسل سؤالًا.'
       : 'ابدأ الجلسة مع الطالب الآن، واستأنف الشرح من آخر درس وآخر نقطة محفوظة في هذه المحادثة. راجع سياق الرسائل السابقة ولا تكرر المقدمة.';
-
     const currentRequestId = ++requestIdRef.current;
     stopTutorAudio();
-
     void runTutorResponse(prompt, {
       isFirstMessage,
       history: getConversationHistory(),
@@ -778,44 +642,25 @@ export function TeacherChat({
     messages.length,
     currentActiveLesson,
   ]);
-
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
-
     if (!content || typing) return;
-
-    if (voiceSubmitTimerRef.current !== null) {
-      clearTimeout(voiceSubmitTimerRef.current);
-      voiceSubmitTimerRef.current = null;
-    }
-
-    if (speechRecognitionRef.current) {
-      submitVoiceOnEndRef.current = false;
-      speechRecognitionRef.current.abort();
-      speechRecognitionRef.current = null;
-      setIsListening(false);
-    }
-
     if (!activeStudentId) {
       setStudentLoadError(
         'لا يمكن إرسال السؤال قبل تحديد الطالب. سجّل دخول الطالب أولًا.'
       );
       return;
     }
-
     if (!activeSubject || !availableSubjects.includes(activeSubject)) {
       setStudentLoadError('اختار مادة متاحة الأول علشان أقدر أساعدك فيها.');
       return;
     }
-
     if (conversationLoading || curriculumLessonsLoading || !conversation) {
       setStudentLoadError('محادثة المادة لسه بتتحمّل. استنى لحظة وجرب تاني.');
       return;
     }
-
     const currentRequestId = ++requestIdRef.current;
     stopTutorAudio();
-
     const studentMsg: ChatMessage = {
       id: `s-${Date.now()}`,
       role: 'student',
@@ -825,43 +670,35 @@ export function TeacherChat({
         minute: '2-digit',
       }),
     };
-
     setMessages((currentMessages) => [...currentMessages, studentMsg]);
     setInput('');
     setSpeechDraft('');
-    voiceFinalTranscriptRef.current = '';
     setTyping(true);
     setDrawing(false);
     setStudentLoadError('');
-
     try {
       await saveTutorMessage({
         conversationId: conversation.id,
         role: 'student',
         content,
       });
-
       if (currentRequestId !== requestIdRef.current) return;
-
       // The current prompt is sent separately to the API, so history
       // contains only messages that came before this prompt.
       const history = getConversationHistory();
       const messageId = `a-${Date.now()}-${currentRequestId}`;
-
       await runTutorResponse(content, {
         isFirstMessage: false,
         history,
         conversationRow: conversation,
         messageId,
       });
-
       if (currentActiveLesson) {
         await updateTutorConversationProgress(conversation.id, {
           last_lesson_id: currentActiveLesson.lesson_id,
           last_lesson_title: currentActiveLesson.lesson_title,
           last_topic: content.slice(0, 200),
         });
-
         setConversation((current) =>
           current?.id === conversation.id
             ? {
@@ -875,7 +712,6 @@ export function TeacherChat({
       }
     } catch (error) {
       console.error('Failed to send or save student message:', error);
-
       if (currentRequestId === requestIdRef.current) {
         setTyping(false);
         setStudentLoadError(
@@ -884,43 +720,25 @@ export function TeacherChat({
       }
     }
   };
-
   const cancelVoiceInput = () => {
-    submitVoiceOnEndRef.current = false;
-    if (voiceSubmitTimerRef.current !== null) {
-      clearTimeout(voiceSubmitTimerRef.current);
-      voiceSubmitTimerRef.current = null;
-    }
     micEnabledRef.current = false;
+    micManuallyMutedRef.current = true;
     setMicMuted(true);
-    if (speechRecognitionRef.current) {
-      speechRecognitionRef.current.abort();
-      speechRecognitionRef.current = null;
-    }
-    voiceFinalTranscriptRef.current = '';
+    studentVoiceRef.current?.stop();
+    studentVoiceRef.current = null;
+    voiceInterruptingTutorRef.current = false;
     setSpeechDraft('');
     setIsListening(false);
   };
 
-  const startVoiceInput = (allowDuringTutor = false) => {
+  const startVoiceInput = async (allowDuringTutor = false): Promise<void> => {
     if (
       (!allowDuringTutor && typing) ||
       conversationLoading ||
       !conversation ||
       !micEnabledRef.current ||
-      speechRecognitionRef.current
-    ) return;
-
-    const speechWindow = window as WindowWithSpeechRecognition;
-    const SpeechRecognitionApi =
-      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionApi) {
-      setStudentLoadError(
-        'المتصفح الحالي لا يدعم الإدخال الصوتي المباشر. افتح The Primer باستخدام Google Chrome أو استخدم الكتابة.'
-      );
-      micEnabledRef.current = false;
-      setMicMuted(true);
+      studentVoiceRef.current
+    ) {
       return;
     }
 
@@ -933,169 +751,108 @@ export function TeacherChat({
       return;
     }
 
-    // Do not stop tutor audio here: recognition must remain active during speech.
     setStudentLoadError('');
     setSpeechDraft('');
-    voiceFinalTranscriptRef.current = '';
-    if (voiceSubmitTimerRef.current !== null) {
-      clearTimeout(voiceSubmitTimerRef.current);
-      voiceSubmitTimerRef.current = null;
-    }
-    submitVoiceOnEndRef.current = true;
 
-    const recognition = new SpeechRecognitionApi();
-    recognition.lang = activeSubject === 'english' ? 'en-US' : 'ar-EG';
-    recognition.continuous = true;
-    recognition.interimResults = true;
+    const listener = new StudentVoiceListener({
+      onSpeechStart: () => {
+        voiceInterruptingTutorRef.current = tutorSpeakingRef.current;
 
-    recognition.onresult = (event) => {
-      let finalText = '';
-      let interimText = '';
-
-      for (let index = 0; index < event.results.length; index++) {
-        const transcript = event.results[index][0]?.transcript || '';
-        if (event.results[index].isFinal) {
-          finalText += `${transcript} `;
-        } else {
-          interimText += `${transcript} `;
+        if (tutorSpeakingRef.current) {
+          stopTutorAudio();
+          tutorSpeakingRef.current = false;
+          setIsTutorSpeaking(false);
         }
-      }
 
-      const combinedText = `${finalText} ${interimText}`.trim();
-      voiceFinalTranscriptRef.current = finalText.trim();
-      setSpeechDraft(combinedText);
+        setIsListening(true);
+      },
+      onTranscript: (transcript) => {
+        const normalizedTranscript = transcript
+          .toLocaleLowerCase('ar-EG')
+          .replace(/[ًٌٍَُِّْـ]/g, '')
+          .replace(/[.,،؛:!?؟"'()\[\]{}]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
 
-      // Ignore text that appears to be the tutor's own voice being picked up
-      // by the microphone. If a different phrase is detected, interrupt playback.
-      if (tutorSpeakingRef.current && combinedText.length >= 3) {
-        const normalize = (value: string) =>
-          value
-            .toLocaleLowerCase('ar-EG')
-            .replace(/[ًٌٍَُِّْـ]/g, '')
-            .replace(/[.,،؛:!?؟"'()\[\]{}]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+        const normalizedTutorText = tutorSpeechTextRef.current
+          .toLocaleLowerCase('ar-EG')
+          .replace(/[ًٌٍَُِّْـ]/g, '')
+          .replace(/[.,،؛:!?؟"'()\[\]{}]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
 
-        const heard = normalize(combinedText);
-        const tutorText = normalize(tutorSpeechTextRef.current);
         const looksLikeTutorEcho =
-          heard.length >= 5 &&
-          (tutorText.includes(heard) ||
-            heard.includes(tutorText.slice(0, Math.min(heard.length, 18))));
+          voiceInterruptingTutorRef.current &&
+          normalizedTranscript.length >= 5 &&
+          normalizedTutorText.length > 0 &&
+          (normalizedTutorText.includes(normalizedTranscript) ||
+            normalizedTranscript.includes(
+              normalizedTutorText.slice(
+                0,
+                Math.min(normalizedTranscript.length, 18)
+              )
+            ));
+
+        voiceInterruptingTutorRef.current = false;
 
         if (looksLikeTutorEcho) {
-          // Do not let the tutor's own playback become a fake student question.
-          voiceFinalTranscriptRef.current = '';
           setSpeechDraft('');
           return;
         }
 
-        stopTutorAudio();
-        tutorSpeakingRef.current = false;
-        setIsTutorSpeaking(false);
-      }
+        setSpeechDraft(transcript);
+        void send(transcript);
+      },
+      onError: (message) => {
+        setStudentLoadError(message);
+      },
+    });
 
-      // Submit the student's completed phrase after a short pause.
-      // Continuous recognition may stay open and never fire onend between phrases.
-      if (finalText.trim() && !tutorSpeakingRef.current) {
-        if (voiceSubmitTimerRef.current !== null) {
-          clearTimeout(voiceSubmitTimerRef.current);
-        }
-
-        voiceSubmitTimerRef.current = window.setTimeout(() => {
-          voiceSubmitTimerRef.current = null;
-          const transcriptToSend = voiceFinalTranscriptRef.current.trim();
-
-          if (
-            submitVoiceOnEndRef.current &&
-            micEnabledRef.current &&
-            transcriptToSend
-          ) {
-            void send(transcriptToSend);
-          }
-        }, 1100);
-      }
-    };
-
-    recognition.onerror = (event) => {
-      const errorMessages: Record<string, string> = {
-        'not-allowed': 'لم تسمح باستخدام الميكروفون. فعّل إذن الميكروفون من إعدادات المتصفح.',
-        'service-not-allowed': 'خدمة التعرف على الصوت غير متاحة من المتصفح حاليًا.',
-        'audio-capture': 'لم يتم العثور على ميكروفون متصل بالجهاز.',
-        network: 'حدثت مشكلة في الاتصال أثناء تحويل صوتك إلى نص. حاول مرة أخرى.',
-        'no-speech': 'لم أسمع صوتًا واضحًا. حاول الكلام مرة أخرى.',
-      };
-
-      if (event.error !== 'aborted') {
-        setStudentLoadError(
-          errorMessages[event.error] || 'تعذّر استقبال الصوت. يمكنك المحاولة مرة أخرى أو الكتابة.'
-        );
-      }
-    };
-
-    recognition.onend = () => {
-      if (speechRecognitionRef.current === recognition) {
-        speechRecognitionRef.current = null;
-      }
-      setIsListening(false);
-
-      const finalTranscript = voiceFinalTranscriptRef.current.trim();
-      if (voiceSubmitTimerRef.current !== null) {
-        clearTimeout(voiceSubmitTimerRef.current);
-        voiceSubmitTimerRef.current = null;
-      }
-
-      if (submitVoiceOnEndRef.current && finalTranscript) {
-        // Submit immediately if the browser ends recognition before the pause timer.
-        micEnabledRef.current = true;
-        void send(finalTranscript);
-      } else if (submitVoiceOnEndRef.current && micEnabledRef.current && !typing) {
-        // SpeechRecognition can end after a short silence; reopen it automatically.
-        window.setTimeout(() => {
-          if (micEnabledRef.current && !speechRecognitionRef.current) {
-            startVoiceInput(true);
-          }
-        }, 250);
-      } else {
-        setSpeechDraft('');
-      }
-    };
-
-    speechRecognitionRef.current = recognition;
+    studentVoiceRef.current = listener;
 
     try {
-      recognition.start();
-      setIsListening(true);
+      await listener.start();
+
+      if (studentVoiceRef.current === listener && micEnabledRef.current) {
+        setIsListening(true);
+      }
     } catch (error) {
-      speechRecognitionRef.current = null;
+      if (studentVoiceRef.current === listener) {
+        studentVoiceRef.current = null;
+      }
+
       setIsListening(false);
-      console.error('Could not start speech recognition:', error);
-      setStudentLoadError('تعذّر تشغيل الميكروفون. تأكد أنه غير مستخدم في تطبيق آخر ثم حاول مجددًا.');
+      micEnabledRef.current = false;
+      setMicMuted(true);
+
+      setStudentLoadError(
+        error instanceof Error
+          ? error.message
+          : 'تعذّر تشغيل الميكروفون. حاول مرة أخرى.'
+      );
     }
   };
 
   const toggleVoiceInput = () => {
     if (micEnabledRef.current) {
       micEnabledRef.current = false;
+      micManuallyMutedRef.current = true;
       setMicMuted(true);
-      submitVoiceOnEndRef.current = false;
-      if (speechRecognitionRef.current) {
-        speechRecognitionRef.current.abort();
-        speechRecognitionRef.current = null;
-      }
+      studentVoiceRef.current?.stop();
+      studentVoiceRef.current = null;
+      voiceInterruptingTutorRef.current = false;
       setIsListening(false);
       setSpeechDraft('');
-      voiceFinalTranscriptRef.current = '';
       return;
     }
 
+    micManuallyMutedRef.current = false;
     micEnabledRef.current = true;
     setMicMuted(false);
-    startVoiceInput(true);
+    void startVoiceInput(true);
   };
 
   const voiceActive = voiceOn && !micMuted;
-
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-3 md:flex-row">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#2a2a2a] bg-[#141414]">
@@ -1104,10 +861,8 @@ export function TeacherChat({
             <div className="flex h-11 w-11 items-center justify-center rounded-full border border-neutral-500 bg-gradient-to-br from-neutral-600 to-neutral-900 text-base font-bold text-white">
               P
             </div>
-
             <div className="absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-[#141414] bg-green-500" />
           </div>
-
           <div className="flex min-w-0 flex-col">
             <div className="flex flex-wrap items-center gap-2">
               <span className="truncate text-sm font-bold text-white">
@@ -1115,16 +870,13 @@ export function TeacherChat({
                   ? `مدرّسك في ${activeMeta.labelAr}`
                   : 'مدرّسك الشخصي'}
               </span>
-
               <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
                 <BookMarked size={10} />
                 {studentCurriculum}
               </span>
             </div>
-
             <span className="mt-0.5 flex items-center gap-1 text-xs text-green-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-
               {isListening
                 ? 'بسمعك دلوقتي...'
                 : typing
@@ -1136,7 +888,6 @@ export function TeacherChat({
                       : 'جاهز أي وقت'}
             </span>
           </div>
-
           <div className="mr-auto flex items-center gap-2">
             <button
               onClick={() => setPanelOpen(!panelOpen)}
@@ -1155,7 +906,6 @@ export function TeacherChat({
             </button>
           </div>
         </div>
-
         {studentLoadError && (
           <div
             role="status"
@@ -1164,7 +914,6 @@ export function TeacherChat({
             {studentLoadError}
           </div>
         )}
-
         <div className="border-b border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2">
           {availableSubjects.length === 0 ? (
             <p className="px-2 py-1 text-xs text-amber-300">
@@ -1176,16 +925,13 @@ export function TeacherChat({
                 {availableSubjects.map((subj) => {
                   const baseMeta = getSubjectMeta(subj);
                   const names = subjectDisplayNames[subj];
-
                   const meta = {
                     ...baseMeta,
                     label: names?.label || baseMeta.label,
                     labelAr: names?.labelAr || baseMeta.labelAr,
                   };
-
                   const Icon = meta.icon;
                   const isActive = activeSubject === subj;
-
                   return (
                     <button
                       key={subj}
@@ -1212,13 +958,11 @@ export function TeacherChat({
                         size={14}
                         style={{ color: meta.accent }}
                       />
-
                       {meta.labelAr}
                     </button>
                   );
                 })}
               </div>
-
               <button
                 onClick={() => setSubjectBarOpen(false)}
                 className="text-neutral-500 hover:text-white"
@@ -1236,16 +980,13 @@ export function TeacherChat({
                 size={14}
                 style={{ color: activeMeta.accent }}
               />
-
               <span className="font-medium">
                 {activeMeta.labelAr}
               </span>
-
               <ChevronDown size={14} />
             </button>
           )}
         </div>
-
         <div
           ref={scrollRef}
           className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
@@ -1256,34 +997,28 @@ export function TeacherChat({
               مسؤول النظام مادة من صفحة الأدمن، ستظهر هنا تلقائيًا.
             </div>
           )}
-
           {conversationLoading && (
             <div className="rounded-xl border border-[#2a2a2a] bg-[#1c1c1c] p-3 text-center text-xs text-neutral-400">
               جاري تحميل محادثة {activeMeta.labelAr}...
             </div>
           )}
-
           {messages.map((message) => (
             <MessageBubble
               key={message.id}
               message={message}
             />
           ))}
-
           {typing && (
             <div className="flex items-center gap-2 text-xs text-neutral-500">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 font-bold text-white">
                 P
               </div>
-
               <div className="flex gap-1 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <span className="h-2 w-2 animate-bounce rounded-full bg-neutral-500" />
-
                 <span
                   className="h-2 w-2 animate-bounce rounded-full bg-neutral-500"
                   style={{ animationDelay: '150ms' }}
                 />
-
                 <span
                   className="h-2 w-2 animate-bounce rounded-full bg-neutral-500"
                   style={{ animationDelay: '300ms' }}
@@ -1291,22 +1026,18 @@ export function TeacherChat({
               </div>
             </div>
           )}
-
           {drawing && (
             <div className="flex items-center gap-2 text-xs text-neutral-500">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-800 font-bold text-white">
                 P
               </div>
-
               <div className="flex items-center gap-2 rounded-2xl bg-[#1c1c1c] px-4 py-3">
                 <PenTool className="animate-pulse text-emerald-400" size={14} />
-
                 <span>جاري إعداد السبورة التفاعلية...</span>
               </div>
             </div>
           )}
         </div>
-
         <div className="border-t border-[#2a2a2a] bg-[#111111] p-3">
           <div className="mb-2 flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-gradient-to-l from-emerald-500/[0.08] to-transparent px-2.5 py-1.5">
             <button
@@ -1328,7 +1059,6 @@ export function TeacherChat({
             >
               {micMuted ? <MicOff size={19} /> : <Mic size={19} />}
             </button>
-
             <div className="min-w-0 flex-1 space-y-0.5 text-right">
               <p className="text-xs font-semibold leading-5 text-white">
                 {micMuted
@@ -1346,7 +1076,6 @@ export function TeacherChat({
               </p>
             </div>
           </div>
-
           {speechDraft && (
             <div
               dir="auto"
@@ -1355,7 +1084,6 @@ export function TeacherChat({
               {speechDraft}
             </div>
           )}
-
           <div className="flex items-center gap-2">
             <input
               value={input}
@@ -1379,7 +1107,6 @@ export function TeacherChat({
               }
               className="flex-1 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none"
             />
-
             <button
               onClick={() => void send()}
               disabled={!input.trim() || availableSubjects.length === 0 || conversationLoading || curriculumLessonsLoading || typing}
@@ -1395,18 +1122,15 @@ export function TeacherChat({
           </div>
         </div>
       </div>
-
       {panelOpen && (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-[#2a2a2a] bg-[#141414] p-4 md:static md:w-72 md:rounded-2xl">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Brain size={16} className="text-emerald-400" />
-
               <h3 className="text-sm font-bold text-white">
                 تفاصيل المنهج
               </h3>
             </div>
-
             <button
               onClick={() => setPanelOpen(false)}
               className="text-neutral-400 hover:text-white"
@@ -1415,42 +1139,34 @@ export function TeacherChat({
               <X size={16} />
             </button>
           </div>
-
           <div className="space-y-2 rounded-xl border border-[#2a2a2a] bg-[#0f0f0f] p-3">
             <p className="text-xs font-bold text-emerald-400">
               {studentCurriculum}
             </p>
-
             {studentStage && (
               <p className="text-xs text-neutral-300">
                 المرحلة: {studentStage}
               </p>
             )}
-
             {studentGrade && (
               <p className="text-xs text-neutral-300">
                 الصف: {studentGrade}
               </p>
             )}
-
             {currentActiveLesson && (
               <p className="text-xs text-neutral-400">
                 الدرس الحالي: {currentActiveLesson.lesson_title}
               </p>
             )}
-
             <p className="text-xs text-neutral-500">
               عدد الدروس المنشورة للمادة: {curriculumLessons.length}
             </p>
-
             {curriculumLessonsLoading && (
               <p className="text-xs text-emerald-400">جاري تحميل دروس المنهج...</p>
             )}
-
             <p className="text-xs text-neutral-500">
               عدد المواد المتاحة: {availableSubjects.length}
             </p>
-
             <p className="text-xs text-neutral-500">
               عدد مواعيد المذاكرة: {dbSchedule.length}
             </p>
@@ -1460,10 +1176,8 @@ export function TeacherChat({
     </div>
   );
 }
-
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isAI = message?.role === 'ai';
-
   return (
     <div
       className={cn(
@@ -1476,7 +1190,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           P
         </div>
       )}
-
       <div
         className={cn(
           isAI
@@ -1598,7 +1311,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </p>
           )}
         </div>
-
         {message?.hasWhiteboard && message?.whiteboardSteps && (
           <Whiteboard
             steps={message.whiteboardSteps}
@@ -1606,7 +1318,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             className="w-full max-w-none"
           />
         )}
-
         <span className="block text-[10px] text-neutral-600">
           {message?.timestamp || ''}
         </span>
