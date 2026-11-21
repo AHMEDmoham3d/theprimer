@@ -11,23 +11,32 @@ export class StudentVoiceListener {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
+  private audioSource: MediaStreamAudioSourceNode | null = null;
+  private scriptProcessor: ScriptProcessorNode | null = null;
+  private silentGain: GainNode | null = null;
 
   private animationFrameId: number | null = null;
-  private audioChunks: Blob[] = [];
+
+  private preRollChunks: Float32Array[] = [];
+  private preRollSampleCount = 0;
+
+  private recordingChunks: Float32Array[] = [];
+  private recordingSampleCount = 0;
 
   private isActive = false;
   private isRecording = false;
-  private discardCurrentRecording = false;
+  private isFinalizing = false;
 
   private speechStartedAt = 0;
   private lastVoiceAt = 0;
   private consecutiveVoiceFrames = 0;
 
-  private readonly silenceDuration = 1000;
-  private readonly minimumSpeechDuration = 350;
+  private readonly silenceDuration = 1400;
+  private readonly minimumSpeechDuration = 500;
   private readonly maximumRecordingDuration = 20000;
   private readonly voiceThreshold = 0.018;
+  private readonly preRollDuration = 600;
+  private readonly targetSampleRate = 16000;
 
   constructor(options: StudentVoiceListenerOptions) {
     this.options = options;
@@ -47,12 +56,6 @@ export class StudentVoiceListener {
       );
     }
 
-    if (typeof MediaRecorder === 'undefined') {
-      throw new Error(
-        'تسجيل الصوت غير مدعوم في هذا المتصفح.'
-      );
-    }
-
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -69,15 +72,44 @@ export class StudentVoiceListener {
         await this.audioContext.resume();
       }
 
-      const source = this.audioContext.createMediaStreamSource(
-        this.stream
-      );
+      this.audioSource =
+        this.audioContext.createMediaStreamSource(this.stream);
 
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 2048;
       this.analyser.smoothingTimeConstant = 0.2;
 
-      source.connect(this.analyser);
+      this.audioSource.connect(this.analyser);
+
+      this.scriptProcessor =
+        this.audioContext.createScriptProcessor(
+          4096,
+          1,
+          1
+        );
+
+      this.silentGain = this.audioContext.createGain();
+      this.silentGain.gain.value = 0;
+
+      this.scriptProcessor.onaudioprocess = (event) => {
+        if (!this.isActive) {
+          return;
+        }
+
+        const input = event.inputBuffer.getChannelData(0);
+        const chunk = new Float32Array(input);
+
+        if (this.isRecording) {
+          this.recordingChunks.push(chunk);
+          this.recordingSampleCount += chunk.length;
+        } else if (!this.isFinalizing) {
+          this.addToPreRoll(chunk);
+        }
+      };
+
+      this.audioSource.connect(this.scriptProcessor);
+      this.scriptProcessor.connect(this.silentGain);
+      this.silentGain.connect(this.audioContext.destination);
 
       this.isActive = true;
       this.monitorMicrophone();
@@ -110,21 +142,46 @@ export class StudentVoiceListener {
 
   stop(): void {
     this.isActive = false;
-    this.discardCurrentRecording = true;
+    this.isRecording = false;
+    this.isFinalizing = false;
+
+    this.preRollChunks = [];
+    this.preRollSampleCount = 0;
+
+    this.recordingChunks = [];
+    this.recordingSampleCount = 0;
 
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
 
-    if (
-      this.mediaRecorder &&
-      this.mediaRecorder.state !== 'inactive'
-    ) {
-      this.mediaRecorder.stop();
+    this.cleanup();
+  }
+
+  private addToPreRoll(chunk: Float32Array): void {
+    if (!this.audioContext) {
+      return;
     }
 
-    this.cleanup();
+    this.preRollChunks.push(chunk);
+    this.preRollSampleCount += chunk.length;
+
+    const maximumSamples = Math.floor(
+      this.audioContext.sampleRate *
+      (this.preRollDuration / 1000)
+    );
+
+    while (
+      this.preRollSampleCount > maximumSamples &&
+      this.preRollChunks.length > 0
+    ) {
+      const removedChunk = this.preRollChunks.shift();
+
+      if (removedChunk) {
+        this.preRollSampleCount -= removedChunk.length;
+      }
+    }
   }
 
   private monitorMicrophone(): void {
@@ -158,6 +215,7 @@ export class StudentVoiceListener {
 
         if (
           !this.isRecording &&
+          !this.isFinalizing &&
           this.consecutiveVoiceFrames >= 2
         ) {
           this.beginRecording();
@@ -191,95 +249,182 @@ export class StudentVoiceListener {
   private beginRecording(): void {
     if (
       !this.isActive ||
-      !this.stream ||
-      this.isRecording
+      !this.audioContext ||
+      this.isRecording ||
+      this.isFinalizing
     ) {
       return;
     }
 
-    try {
-      const mimeType = this.getSupportedMimeType();
+    this.recordingChunks = this.preRollChunks.map(
+      (chunk) => new Float32Array(chunk)
+    );
 
-      const recorder = mimeType
-        ? new MediaRecorder(this.stream, { mimeType })
-        : new MediaRecorder(this.stream);
+    this.recordingSampleCount = this.preRollSampleCount;
 
-      this.mediaRecorder = recorder;
-      this.audioChunks = [];
-      this.discardCurrentRecording = false;
+    this.preRollChunks = [];
+    this.preRollSampleCount = 0;
 
-      recorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data.size > 0) {
-          this.audioChunks.push(event.data);
-        }
-      };
+    this.isRecording = true;
+    this.speechStartedAt = Date.now();
+    this.lastVoiceAt = Date.now();
 
-      recorder.onstop = () => {
-        const chunks = this.audioChunks;
-        const recordingType =
-          recorder.mimeType || 'audio/webm';
-
-        this.audioChunks = [];
-
-        if (this.mediaRecorder === recorder) {
-          this.mediaRecorder = null;
-        }
-
-        if (this.discardCurrentRecording) {
-          this.discardCurrentRecording = false;
-          return;
-        }
-
-        const duration = Date.now() - this.speechStartedAt;
-
-        if (duration < this.minimumSpeechDuration) {
-          return;
-        }
-
-        const audioBlob = new Blob(chunks, {
-          type: recordingType,
-        });
-
-        if (audioBlob.size < 500) {
-          return;
-        }
-
-        void this.transcribeAudio(audioBlob);
-      };
-
-      recorder.onerror = () => {
-        this.options.onError(
-          'حدثت مشكلة أثناء تسجيل صوتك. حاول مرة أخرى.'
-        );
-      };
-
-      recorder.start(250);
-
-      this.isRecording = true;
-      this.speechStartedAt = Date.now();
-      this.lastVoiceAt = Date.now();
-
-      this.options.onSpeechStart();
-    } catch {
-      this.isRecording = false;
-
-      this.options.onError(
-        'تعذّر بدء تسجيل صوتك.'
-      );
-    }
+    this.options.onSpeechStart();
   }
 
   private finishRecording(): void {
-    if (!this.mediaRecorder || !this.isRecording) {
+    if (!this.isRecording || !this.audioContext) {
       return;
     }
 
     this.isRecording = false;
+    this.isFinalizing = true;
 
-    const recorder = this.mediaRecorder;
+    const duration = Date.now() - this.speechStartedAt;
 
-    if (recorder.state !== 'inactive') {
-      recorder.stop();
+    const chunks = this.recordingChunks;
+
+    this.recordingChunks = [];
+    this.recordingSampleCount = 0;
+
+    if (duration < this.minimumSpeechDuration) {
+      this.isFinalizing = false;
+      return;
+    }
+
+    try {
+      const audioBlob = this.createWavBlob(
+        chunks,
+        this.audioContext.sampleRate
+      );
+
+      if (audioBlob.size < 500) {
+        this.isFinalizing = false;
+        return;
+      }
+
+      // Keep finalizing enabled until transcription finishes.
+      void this.transcribeAudio(audioBlob);
+    } catch {
+      this.isFinalizing = false;
+
+      this.options.onError(
+        'تعذّر تجهيز التسجيل الصوتي. حاول مرة أخرى.'
+      );
+    }
+  }
+
+  private createWavBlob(
+    chunks: Float32Array[],
+    originalSampleRate: number
+  ): Blob {
+    const totalSamples = chunks.reduce(
+      (total, chunk) => total + chunk.length,
+      0
+    );
+
+    const combinedSamples = new Float32Array(totalSamples);
+
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      combinedSamples.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const resampled = this.resampleAudio(
+      combinedSamples,
+      originalSampleRate,
+      this.targetSampleRate
+    );
+
+    const bytesPerSample = 2;
+    const dataSize = resampled.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    this.writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    this.writeString(view, 8, 'WAVE');
+    this.writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, this.targetSampleRate, true);
+    view.setUint32(
+      28,
+      this.targetSampleRate * bytesPerSample,
+      true
+    );
+    view.setUint16(32, bytesPerSample, true);
+    view.setUint16(34, 16, true);
+    this.writeString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let position = 44;
+
+    for (let index = 0; index < resampled.length; index++) {
+      const sample = Math.max(
+        -1,
+        Math.min(1, resampled[index])
+      );
+
+      const value =
+        sample < 0
+          ? sample * 0x8000
+          : sample * 0x7fff;
+
+      view.setInt16(position, value, true);
+      position += 2;
+    }
+
+    return new Blob([buffer], {
+      type: 'audio/wav',
+    });
+  }
+
+  private resampleAudio(
+    samples: Float32Array,
+    originalSampleRate: number,
+    targetSampleRate: number
+  ): Float32Array {
+    if (originalSampleRate === targetSampleRate) {
+      return samples;
+    }
+
+    const ratio = originalSampleRate / targetSampleRate;
+    const newLength = Math.floor(samples.length / ratio);
+
+    const result = new Float32Array(newLength);
+
+    for (let index = 0; index < newLength; index++) {
+      const position = index * ratio;
+      const firstIndex = Math.floor(position);
+      const secondIndex = Math.min(
+        firstIndex + 1,
+        samples.length - 1
+      );
+
+      const fraction = position - firstIndex;
+
+      result[index] =
+        samples[firstIndex] * (1 - fraction) +
+        samples[secondIndex] * fraction;
+    }
+
+    return result;
+  }
+
+  private writeString(
+    view: DataView,
+    offset: number,
+    value: string
+  ): void {
+    for (let index = 0; index < value.length; index++) {
+      view.setUint8(
+        offset + index,
+        value.charCodeAt(index)
+      );
     }
   }
 
@@ -290,6 +435,10 @@ export class StudentVoiceListener {
 
     try {
       const audioBase64 = await this.blobToBase64(audioBlob);
+
+      if (!this.isActive) {
+        return;
+      }
 
       const response = await fetch('/api/transcribe', {
         method: 'POST',
@@ -334,6 +483,9 @@ export class StudentVoiceListener {
           ? error.message
           : 'حدث خطأ أثناء استقبال صوتك.'
       );
+    } finally {
+      // Allow a new recording only after the current request is complete.
+      this.isFinalizing = false;
     }
   }
 
@@ -367,24 +519,23 @@ export class StudentVoiceListener {
     });
   }
 
-  private getSupportedMimeType(): string {
-    const supportedTypes = [
-      'audio/webm;codecs=opus',
-      'audio/ogg;codecs=opus',
-      'audio/mp4',
-      'audio/webm',
-    ];
-
-    for (const type of supportedTypes) {
-      if (MediaRecorder.isTypeSupported(type)) {
-        return type;
-      }
+  private cleanup(): void {
+    if (this.scriptProcessor) {
+      this.scriptProcessor.onaudioprocess = null;
+      this.scriptProcessor.disconnect();
+      this.scriptProcessor = null;
     }
 
-    return '';
-  }
+    if (this.audioSource) {
+      this.audioSource.disconnect();
+      this.audioSource = null;
+    }
 
-  private cleanup(): void {
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
+    }
+
     if (this.stream) {
       this.stream.getTracks().forEach((track) => {
         track.stop();

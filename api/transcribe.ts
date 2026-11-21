@@ -111,10 +111,10 @@ export default async function handler(
       `student-audio.${extension}`
     );
 
-    formData.append(
-      'model',
-      'whisper-large-v3'
-    );
+    formData.append('model', 'whisper-large-v3');
+
+    // Egyptian Arabic is the primary spoken language.
+    formData.append('language', 'ar');
 
     formData.append('response_format', 'json');
     formData.append('temperature', '0');
@@ -122,15 +122,17 @@ export default async function handler(
     formData.append(
       'prompt',
       [
-        'Transcribe the audio exactly as spoken.',
-        'Preserve the speaker original language and wording.',
-        'If the speaker uses Egyptian Arabic, write Egyptian colloquial Arabic exactly as spoken, not Modern Standard Arabic.',
-        'If the speaker uses English, write in English.',
-        'If the speaker mixes Arabic and English, preserve both languages in the same transcript.',
-        'Do not translate, paraphrase, summarize, rewrite, or correct the speaker.',
-        'Do not replace colloquial words with formal Arabic words.',
-        'Preserve technical, scientific, mathematical, and programming terms in their original language.',
-        'Do not add words that the speaker did not say.',
+        'The speaker primarily speaks Egyptian Arabic.',
+        'Transcribe exactly what the speaker says.',
+        'Write Egyptian Arabic in Arabic script using natural Egyptian colloquial wording.',
+        'Preserve English words, technical terms, programming terms, and abbreviations in English whenever they are spoken in English.',
+        'If Arabic and English are mixed in one sentence, preserve both languages in their original scripts.',
+        'Do not translate English words into Arabic.',
+        'Do not translate Arabic words into English.',
+        'Do not convert Egyptian Arabic into Modern Standard Arabic.',
+        'Do not paraphrase, summarize, rewrite, or correct the speaker.',
+        'Do not add words that were not spoken.',
+        'If a word is unclear, do not invent a replacement.',
       ].join(' ')
     );
 
